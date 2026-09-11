@@ -9,19 +9,21 @@
 //! * the write is atomic and goes **through** a symlink rather than over it, so
 //!   a config tracked in a dotfiles repo stays a link to that repo;
 //! * the search order of HLD §3 is the one the process actually performs —
-//!   flag, `$HOG_CONFIG`, `$XDG_CONFIG_HOME`, `~/.config`, built-in defaults —
-//!   with no merging between files;
+//!   flag, `$HOG_CONFIG`, `~/.hog.toml`, built-in defaults — with no merging
+//!   between files;
 //! * the exclude layers of HLD §11.6: the file is the base, `-e` adds, `-E`
 //!   resets, and `-E -e foo` is exactly `["foo"]`;
 //! * an unknown key is a **warning with a line number** and the run carries on,
 //!   while a file that does not parse is exit 1 with a line number and leaves
 //!   the file on disk untouched.
 //!
-//! Every test owns a temporary directory and gets `$HOME`, `$XDG_CONFIG_HOME`
-//! and the working directory pointed into it. Nothing here reads the real
-//! `$HOME`: `std::env::set_var` is `unsafe` and this package denies unsafe
-//! code, so the environment is built on the *parent* side, which is also why
-//! `config::discover` takes an `Env` instead of reading one.
+//! Every test owns a temporary directory and gets `$HOME` and the working
+//! directory pointed into it — at two *different* places inside it, so that a
+//! config read from `$HOME` can never be confused with one picked up beside the
+//! process. Nothing here reads the real `$HOME`: `std::env::set_var` is
+//! `unsafe` and this package denies unsafe code, so the environment is built on
+//! the *parent* side, which is also why `config::discover` takes an `Env`
+//! instead of reading one.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -29,19 +31,21 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use assert_cmd::cargo::CommandCargoExt as _;
+use hog::config::discover::CONFIG_FILE;
 
 // ==================================================================== fixture
 
-/// A temporary tree with the three directories the search order cares about.
+/// A temporary tree with the two directories the search order cares about.
 ///
 /// ```text
-/// <root>/home            $HOME        → <root>/home/.config/hog/config.toml
-/// <root>/xdg             $XDG_CONFIG_HOME → <root>/xdg/hog/config.toml
+/// <root>/home            $HOME  → <root>/home/.hog.toml
 /// <root>/store           files named by --config / $HOG_CONFIG
 /// ```
 ///
-/// The working directory of every child is `<root>` itself, which is what makes
-/// "hog never picks a config up from the CWD" observable rather than assumed.
+/// The working directory of every child is `<root>` itself and never `$HOME`,
+/// which is what makes "hog never picks a config up from the CWD" observable
+/// rather than assumed — the default file is called `.hog.toml`, and a
+/// CWD-relative join would be spelled the same way.
 struct Root {
     path: PathBuf,
 }
@@ -56,25 +60,15 @@ impl Root {
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&path);
-        for dir in ["home", "xdg", "store"] {
+        for dir in ["home", "store"] {
             fs::create_dir_all(path.join(dir)).expect("the temp tree is creatable");
         }
         Self { path }
     }
 
-    /// `$XDG_CONFIG_HOME/hog/config.toml` — the file hog reads by default here.
+    /// `$HOME/.hog.toml` — the file hog reads by default here.
     fn config(&self) -> PathBuf {
-        self.path.join("xdg").join("hog").join("config.toml")
-    }
-
-    /// `$HOME/.config/hog/config.toml`, the fallback when `$XDG_CONFIG_HOME` is
-    /// unset or unusable.
-    fn home_config(&self) -> PathBuf {
-        self.path
-            .join("home")
-            .join(".config")
-            .join("hog")
-            .join("config.toml")
+        self.path.join("home").join(CONFIG_FILE)
     }
 
     /// A path inside the tree, e.g. `root.at("store/ci.toml")`.
@@ -94,7 +88,7 @@ impl Root {
         fs::write(path, text).expect("the file is writable");
     }
 
-    /// Writes `$XDG_CONFIG_HOME/hog/config.toml`.
+    /// Writes `$HOME/.hog.toml`.
     fn write_config(&self, text: &str) {
         let path = self.config();
         Self::write(&path, text);
@@ -106,7 +100,7 @@ impl Root {
             .unwrap_or_else(|err| panic!("{} is readable: {err}", path.display()))
     }
 
-    /// Reads `$XDG_CONFIG_HOME/hog/config.toml`.
+    /// Reads `$HOME/.hog.toml`.
     fn read_config(&self) -> String {
         let path = self.config();
         Self::read(&path)
@@ -122,8 +116,7 @@ impl Root {
             .env_remove("CLICOLOR")
             .env_remove("CLICOLOR_FORCE")
             .env_remove("COLORTERM")
-            .env("HOME", self.path.join("home"))
-            .env("XDG_CONFIG_HOME", self.path.join("xdg"));
+            .env("HOME", self.path.join("home"));
         Run {
             command,
             input: Vec::new(),
@@ -546,9 +539,15 @@ fn a_missing_key_is_created_above_the_first_table_header() {
     assert_eq!(out.stderr, "", "the edited file warned about itself");
 }
 
-/// No file at all is the ordinary first command on a new machine: it seeds the
-/// commented starter with the field already in it, rather than a one-line file
-/// that explains nothing.
+/// The ordinary first command on a new machine: the run creates the commented
+/// starter and the verb then puts the field in it, so the user ends up with the
+/// documentation of the format rather than a one-line file that explains
+/// nothing.
+///
+/// The two halves are separate — the run creates, the verb edits — and the file
+/// on disk cannot tell you which did what. What it can tell you is that the
+/// result is the starter with one entry in it, which is what both halves
+/// together promise.
 #[test]
 fn a_missing_file_is_seeded_with_the_commented_starter() {
     let root = Root::new("missing-file");
@@ -567,13 +566,14 @@ fn a_missing_file_is_seeded_with_the_commented_starter() {
         comments(&written).len() > 20,
         "the seeded file is the documented starter, not a one-liner:\n{written}"
     );
-    // And it is the same file `config init` would have written, bar the array.
-    let other = Root::new("missing-file-init");
-    other.hog().args(&["config", "init"]).ok();
+    // And it is the file hog writes on a first run, bar the array — the two
+    // paths into a fresh config must not drift apart.
+    let other = Root::new("missing-file-created");
+    other.hog().args(&["config", "path"]).ok();
     assert_eq!(
         written,
         other.read_config().replace("[]", "[\"trace_id\"]"),
-        "seeding drifted from `hog config init`"
+        "seeding drifted from the file hog creates on its own"
     );
 }
 
@@ -713,9 +713,9 @@ fn an_edit_that_changes_nothing_does_not_touch_the_file() {
 
 // =============================================================== atomic write
 
-/// HLD §3, step 1: `~/.config/hog/config.toml` is very often a symlink into a
-/// dotfiles repo, and renaming onto the link path would replace the link with a
-/// regular file — silently detaching the config from the repo it is tracked in.
+/// HLD §3, step 1: `~/.hog.toml` is very often a symlink into a dotfiles repo,
+/// and renaming onto the link path would replace the link with a regular file —
+/// silently detaching the config from the repo it is tracked in.
 #[test]
 fn writing_through_a_symlinked_file_keeps_the_symlink() {
     let root = Root::new("symlink-file");
@@ -751,19 +751,22 @@ fn writing_through_a_symlinked_file_keeps_the_symlink() {
     );
 }
 
-/// The same for a symlinked *directory* — `~/.config/hog -> ~/dotfiles/hog`,
-/// which is how a whole config tree is usually tracked.
+/// The same for a symlinked *directory* — a `--config` path reached through
+/// `~/dotfiles`, which is how a whole config tree is usually tracked.
 #[test]
 fn writing_into_a_symlinked_directory_keeps_the_symlink() {
     let root = Root::new("symlink-dir");
     let real = root.at("store/dotfiles/hog/config.toml");
     Root::write(&real, "exclude = []\n");
 
-    let link = root.at("xdg/hog");
+    let link = root.at("store/link");
     std::os::unix::fs::symlink(root.at("store/dotfiles/hog"), &link)
         .expect("the symlink is creatable");
 
-    root.hog().args(&["config", "exclude", "add", "new"]).ok();
+    root.hog()
+        .args(&["--config", &link.join("config.toml").display().to_string()])
+        .args(&["config", "exclude", "add", "new"])
+        .ok();
 
     assert!(
         fs::symlink_metadata(&link)
@@ -793,7 +796,7 @@ fn the_write_leaves_no_temp_file_behind() {
         .collect();
     assert_eq!(
         names,
-        ["config.toml"],
+        [CONFIG_FILE],
         "the directory holds more than the config"
     );
 }
@@ -820,16 +823,17 @@ fn an_existing_file_keeps_its_permissions() {
 }
 
 /// A file hog creates records a command hog executes, so it is not readable by
-/// the rest of the machine.
+/// the rest of the machine — including the one hog creates by itself, which is
+/// now every config file's first moment.
 #[test]
 fn a_created_file_is_private() {
     use std::os::unix::fs::PermissionsExt as _;
 
     let root = Root::new("init-mode");
-    root.hog().args(&["config", "init"]).ok();
+    root.hog().args(&["config", "path"]).ok();
 
     let mode = fs::metadata(root.config())
-        .expect("`config init` wrote the file")
+        .expect("the first run wrote the file")
         .permissions()
         .mode()
         & 0o777;
@@ -845,7 +849,7 @@ fn a_created_file_is_private() {
 /// There is no merging anywhere in this table: the first hit wins outright.
 #[test]
 fn the_search_order_table() {
-    const LINE: &[u8] = br#"{"flag":1,"env":2,"xdg":3,"home":4}"#;
+    const LINE: &[u8] = br#"{"flag":1,"env":2,"home":3}"#;
     let render = ["--color", "never"];
 
     // 1. --config wins over everything, including a $HOG_CONFIG that is set.
@@ -854,8 +858,7 @@ fn the_search_order_table() {
     let env = root.at("store/env.toml");
     Root::write(&flag, "exclude = [\"flag\"]\n");
     Root::write(&env, "exclude = [\"env\"]\n");
-    root.write_config("exclude = [\"xdg\"]\n");
-    Root::write(&root.home_config(), "exclude = [\"home\"]\n");
+    root.write_config("exclude = [\"home\"]\n");
 
     let out = root
         .hog()
@@ -864,7 +867,7 @@ fn the_search_order_table() {
         .env("HOG_CONFIG", &env)
         .stdin(LINE)
         .ok();
-    assert_eq!(visible(&out.stdout), ["env", "home", "xdg"]);
+    assert_eq!(visible(&out.stdout), ["env", "home"]);
 
     // 2. $HOG_CONFIG, when no flag names a file.
     let out = root
@@ -873,41 +876,53 @@ fn the_search_order_table() {
         .env("HOG_CONFIG", &env)
         .stdin(LINE)
         .ok();
-    assert_eq!(visible(&out.stdout), ["flag", "home", "xdg"]);
+    assert_eq!(visible(&out.stdout), ["flag", "home"]);
 
-    // 3. $XDG_CONFIG_HOME/hog/config.toml.
+    // 3. $HOME/.hog.toml.
     let out = root.hog().args(&render).stdin(LINE).ok();
-    assert_eq!(visible(&out.stdout), ["env", "flag", "home"]);
+    assert_eq!(visible(&out.stdout), ["env", "flag"]);
 
-    // 4. ~/.config/hog/config.toml, when $XDG_CONFIG_HOME is unset.
+    // 3b. …and an exported but empty $HOME is no home at all, so the built-in
+    //     defaults apply rather than a file at `/.hog.toml`.
     let out = root
         .hog()
         .args(&render)
-        .without("XDG_CONFIG_HOME")
+        .env("HOME", Path::new(""))
         .stdin(LINE)
         .ok();
-    assert_eq!(visible(&out.stdout), ["env", "flag", "xdg"]);
+    assert_eq!(visible(&out.stdout), ["env", "flag", "home"]);
 
-    // 4b. …and when it is set to something the XDG spec says to ignore.
-    for unusable in ["", "relative/config"] {
-        let out = root
-            .hog()
-            .args(&render)
-            .env("XDG_CONFIG_HOME", Path::new(unusable))
-            .stdin(LINE)
-            .ok();
-        assert_eq!(
-            visible(&out.stdout),
-            ["env", "flag", "xdg"],
-            "XDG_CONFIG_HOME={unusable:?} should have been ignored"
-        );
-    }
-
-    // 5. Nothing anywhere: the built-in defaults, silently.
+    // 4. Nothing anywhere: the run creates `$HOME/.hog.toml` from the starter
+    //    and says so in one line, and the starter is the built-in defaults — so
+    //    the render is the same one row 3b just produced with no file at all.
     let bare = Root::new("search-bare");
     let out = bare.hog().args(&render).stdin(LINE).ok();
-    assert_eq!(visible(&out.stdout), ["env", "flag", "home", "xdg"]);
-    assert_eq!(out.stderr, "", "a missing config is not worth a word");
+    assert_eq!(visible(&out.stdout), ["env", "flag", "home"]);
+    assert_eq!(
+        out.stderr,
+        format!("hog: created {}\n", bare.config().display()),
+        "the creation is worth exactly one line"
+    );
+
+    // 4b. …and the run after it has nothing to say at all.
+    let out = bare.hog().args(&render).stdin(LINE).ok();
+    assert_eq!(visible(&out.stdout), ["env", "flag", "home"]);
+    assert_eq!(out.stderr, "", "the second run announced itself again");
+
+    // 5. …and none of the above ever looks beside the process. The working
+    //    directory is `<root>`, not `$HOME`, so a `.hog.toml` planted here must
+    //    stay invisible even though it is spelled exactly like the default.
+    let planted = Root::new("search-cwd");
+    Root::write(
+        &planted.at(CONFIG_FILE),
+        "exclude = [\"flag\", \"env\", \"home\"]\n",
+    );
+    let out = planted.hog().args(&render).stdin(LINE).ok();
+    assert_eq!(
+        visible(&out.stdout),
+        ["env", "flag", "home"],
+        "a config beside the working directory was read"
+    );
 }
 
 /// `hog config path` answers the same question the table above answers, one
@@ -942,12 +957,12 @@ fn the_path_and_its_source_follow_the_same_order() {
     let out = root.hog().args(&["config", "path"]).ok();
     assert_eq!(out.line(), root.config().display().to_string());
 
-    let out = root
-        .hog()
-        .args(&["config", "path"])
-        .without("XDG_CONFIG_HOME")
-        .ok();
-    assert_eq!(out.line(), root.home_config().display().to_string());
+    let summary = root.hog().args(&["config"]).ok();
+    assert!(
+        summary.stdout.contains("source:    $HOME"),
+        "{}",
+        summary.stdout
+    );
 }
 
 /// A file the user **named** and that is not there is a failure, not a silent
@@ -956,7 +971,7 @@ fn the_path_and_its_source_follow_the_same_order() {
 #[test]
 fn a_named_file_that_is_missing_is_an_error_that_names_the_knob() {
     let root = Root::new("missing-named");
-    root.write_config("exclude = [\"xdg\"]\n");
+    root.write_config("exclude = [\"home\"]\n");
     let nowhere = root.at("store/nope.toml");
 
     let out = root
@@ -971,37 +986,35 @@ fn a_named_file_that_is_missing_is_an_error_that_names_the_knob() {
     out.stderr_has("$HOG_CONFIG")
         .stderr_has(&nowhere.display().to_string());
 
-    // The *guessed* path is the opposite case: missing is the normal state.
+    // The *guessed* path is the opposite case: a file that is not there yet is
+    // one hog writes, and the run carries on rendering either way.
     let bare = Root::new("missing-guessed");
     let out = bare.hog().stdin(b"{\"msg\":\"hi\"}").ok();
     assert_eq!(out.stdout, "hi\n");
-    assert_eq!(out.stderr, "");
+    assert_eq!(
+        out.stderr,
+        format!("hog: created {}\n", bare.config().display())
+    );
+    assert!(bare.config().exists());
 }
 
-/// With neither `$XDG_CONFIG_HOME` nor `$HOME` there is no path to guess. A
-/// plain run carries on with the built-in defaults; `hog config`, whose every
-/// branch is about a specific file, has to say so instead of printing an empty
-/// line.
+/// With no `$HOME` there is no path to guess. A plain run carries on with the
+/// built-in defaults; `hog config`, whose every branch is about a specific
+/// file, has to say so instead of printing an empty line.
 #[test]
-fn no_config_home_at_all_still_renders_but_cannot_name_a_file() {
+fn no_home_at_all_still_renders_but_cannot_name_a_file() {
     let root = Root::new("nohome");
 
     let out = root
         .hog()
-        .without("XDG_CONFIG_HOME")
         .without("HOME")
         .stdin(b"{\"msg\":\"hi\",\"a\":1}")
         .ok();
     assert_eq!(out.stdout, "hi a=1\n");
     assert_eq!(out.stderr, "");
 
-    let out = root
-        .hog()
-        .args(&["config", "path"])
-        .without("XDG_CONFIG_HOME")
-        .without("HOME")
-        .fails();
-    out.stderr_has("XDG_CONFIG_HOME").stderr_has("HOME");
+    let out = root.hog().args(&["config", "path"]).without("HOME").fails();
+    out.stderr_has("$HOME").stderr_has("--config");
     assert!(out.stdout.is_empty(), "an empty path was printed anyway");
 }
 

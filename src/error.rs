@@ -214,10 +214,10 @@ enum Hint<'a> {
     /// Print the `--help` text after the error.
     ///
     /// That text is not static: `--help` carries the "Configured command" block
-    /// of HLD §6, so a bare `hog` at a prompt with no config gets the built-in
-    /// `echo {@}` and the `hog config init` hint printed under its usage — which
-    /// is the entire guidance the deleted `NoCommand` hint used to carry, now
-    /// living in one place instead of two.
+    /// of HLD §6, so a bare `hog` at a prompt with no template gets the built-in
+    /// `echo {@}`, the path of its config file and the `hog config command set`
+    /// hint printed under its usage — which is the entire guidance the deleted
+    /// `NoCommand` hint used to carry, now living in one place instead of two.
     Usage,
     /// Say what hog tried to execute, and why `PATH` is the thing to look at.
     NotFound(&'a str, &'a str),

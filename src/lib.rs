@@ -74,6 +74,17 @@ pub fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     // order testable without `std::env::set_var` (this package denies unsafe).
     let env = config::Env::from_process();
 
+    // And the one place the config file is created. It happens here, above the
+    // mode switch, because "on the first run" means *every* first run — the
+    // stdin pipeline, command mode and `hog config …` alike — and because
+    // nothing below may read a config before it exists. It cannot fail: a
+    // `$HOME` hog cannot write is worth a line on stderr, not a tool that
+    // refuses to show logs (see `config::ensure_default`).
+    {
+        let mut stderr = std::io::stderr().lock();
+        config::ensure_default(cli.config.as_deref(), &env, &mut stderr);
+    }
+
     if let Some(command) = cli.command {
         return match command {
             Cmd::Config { action } => {

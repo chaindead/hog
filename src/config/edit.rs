@@ -73,10 +73,16 @@ use toml_edit::{Array, DocumentMut, Item, RawString, Value};
 
 /// The commented starter config, compiled into the binary.
 ///
-/// This is what `hog config --init` writes, and it doubles as the reference
+/// This is what hog writes the first time it finds no config file
+/// ([`ensure_default`](super::ensure_default)), and it doubles as the reference
 /// documentation of the format: every key hog understands appears in it, with
 /// the reasoning beside it. Keep it in sync with [`model`](super::model) — a
-/// key documented here but missing there would warn about itself.
+/// key documented here but missing there would warn about itself on every fresh
+/// install.
+///
+/// Every value in it is the built-in default, and `command` is commented out.
+/// That is load-bearing rather than tidy: hog creates this file unasked, so
+/// creating it must change nothing about how the next run behaves.
 pub const STARTER: &str = include_str!("starter.toml");
 
 /// The top-level key holding the persistent exclude list.

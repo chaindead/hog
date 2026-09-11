@@ -25,7 +25,8 @@
 //! terminal the developer happened to run it from.
 
 use std::io::{Read as _, Write as _};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::{Mutex, PoisonError};
 
 use assert_cmd::cargo::CommandCargoExt as _;
 use clap::Parser as _;
@@ -39,12 +40,12 @@ const REFERENCE: &str = concat!(
     r#""port":8080,"grpc":{"code":"OK","time_ms":1.5}}"#,
 );
 
-/// An absolute config home with no `hog/config.toml` under it.
+/// An absolute `$HOME` with no `.hog.toml` in it.
 ///
 /// Nothing is created: discovery only computes the path, and a missing file at
 /// a *guessed* path is the ordinary "no config yet" case (HLD §3). Pointing the
 /// child at one is what keeps this suite from reading — or worse, editing — the
-/// developer's own `~/.config/hog/config.toml`.
+/// developer's own `~/.hog.toml`.
 fn no_config_home() -> std::path::PathBuf {
     std::env::temp_dir().join(format!("hog-cli-surface-no-config-{}", std::process::id()))
 }
@@ -59,11 +60,10 @@ fn isolate(command: &mut Command) -> &mut Command {
         .env_remove("CLICOLOR_FORCE")
         .env_remove("CLICOLOR")
         .env_remove("COLORTERM")
-        // And the config trio, so that every test below starts from the
-        // built-in defaults. `HOME` is set too: it is the fallback discovery
-        // uses when `XDG_CONFIG_HOME` is unusable.
+        // And the config pair, so that every test below starts from the
+        // built-in defaults: `$HOME` decides the default file and
+        // `$HOG_CONFIG` would override it.
         .env_remove("HOG_CONFIG")
-        .env("XDG_CONFIG_HOME", no_config_home())
         .env("HOME", no_config_home())
 }
 
@@ -71,6 +71,40 @@ fn hog() -> Command {
     let mut command = Command::cargo_bin("hog").expect("the binary is built by `cargo test`");
     isolate(&mut command);
     command
+}
+
+/// Serializes process creation across this binary's test threads.
+///
+/// Not tidiness — it fixes a real, reproducible flake. libtest runs these tests
+/// in parallel, and on a platform without `pipe2` (macOS is one) `Stdio::piped`
+/// creates the pipe with `pipe()` and only then marks the fds `FD_CLOEXEC`.
+/// A `fork`/`posix_spawn` from *another* test thread inside that window
+/// inherits the read end into an unrelated child, which then holds it open —
+/// so `a_closed_stdout_exits_141_without_a_panic` drops its own read end, hog's
+/// write lands in a pipe that still has a reader somewhere else, and hog exits
+/// 0 having proved nothing. Measured at roughly one run in sixty of
+/// `cargo test --test cli_surface` before this lock, and none after.
+///
+/// The alternative — accepting exit 0 as "the pipe wasn't really closed" —
+/// would leave a test that also passes if hog stops honouring SIGPIPE
+/// altogether, which is the one thing it exists to catch.
+static SPAWN: Mutex<()> = Mutex::new(());
+
+/// [`Command::spawn`], with no other thread of this binary forking meanwhile.
+///
+/// The guard covers process creation only; the caller still feeds stdin and
+/// waits with the lock released, so the suite stays parallel everywhere that
+/// parallelism is free.
+fn spawn_locked(command: &mut Command) -> std::io::Result<Child> {
+    let _guard = SPAWN.lock().unwrap_or_else(PoisonError::into_inner);
+    command.spawn()
+}
+
+/// [`Command::output`] under the same lock, for the one call site that needs
+/// the whole child rather than a handle to it.
+fn output_locked(command: &mut Command) -> std::io::Result<Output> {
+    let _guard = SPAWN.lock().unwrap_or_else(PoisonError::into_inner);
+    command.output()
 }
 
 /// Runs `hog <args>` over `input`, returning (stdout, stderr, exit code).
@@ -86,12 +120,13 @@ fn run_with_env(args: &[&str], env: &[(&str, &str)], input: &[u8]) -> (Vec<u8>, 
         command.env(key, value);
     }
 
-    let mut child = command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("hog must start");
+    let mut child = spawn_locked(
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("hog must start");
 
     child
         .stdin
@@ -149,12 +184,13 @@ fn run_on_a_pty(args: &[&str]) -> Option<(String, i32)> {
         command.arg("-qe").arg("-c").arg(line).arg("/dev/null");
     }
 
-    let out = command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .ok()?;
+    let out = output_locked(
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .ok()?;
 
     // A pty echoes, adds ONLCR and prints the EOF that closing stdin causes, so
     // the text is only ever matched with `contains`.
@@ -210,7 +246,6 @@ mod grammar {
     enum Action {
         Summary,
         Path,
-        Init,
         Edit,
         /// `None` for the bare verb, `Some(fields)` for `add` / `rm`.
         Exclude(Option<(bool, Vec<String>)>),
@@ -238,7 +273,6 @@ mod grammar {
         match action {
             None => Action::Summary,
             Some(ConfigCmd::Path) => Action::Path,
-            Some(ConfigCmd::Init) => Action::Init,
             Some(ConfigCmd::Edit) => Action::Edit,
             Some(ConfigCmd::Exclude { op }) => Action::Exclude(op.map(|op| match op {
                 ExcludeOp::Add { fields } => (true, fields),
@@ -373,7 +407,6 @@ mod grammar {
     fn every_config_verb_parses_to_itself() {
         for (argv, expected) in [
             (["hog", "config", "path"].as_slice(), Action::Path),
-            (["hog", "config", "init"].as_slice(), Action::Init),
             (["hog", "config", "edit"].as_slice(), Action::Edit),
             (
                 ["hog", "config", "exclude"].as_slice(),
@@ -398,6 +431,17 @@ mod grammar {
         ] {
             assert_eq!(config_action(parse(argv)), expected, "argv: {argv:?}");
         }
+    }
+
+    /// `init` is gone too, and for a better reason than the flags below: hog
+    /// writes `$HOME/.hog.toml` itself on the first run that finds it missing,
+    /// so the verb had nothing left to do. It has to be a usage error rather
+    /// than a no-op — a script still running `hog config init` should be told,
+    /// not silently ignored.
+    #[test]
+    fn the_init_verb_is_gone() {
+        let err = rejected(&["hog", "config", "init"]);
+        assert_eq!(err.kind(), clap::error::ErrorKind::InvalidSubcommand);
     }
 
     /// The v0.2 flags are **gone**, not deprecated: each of them is now a usage
@@ -681,13 +725,14 @@ mod exit_codes {
     /// what `println!` would have done.
     #[test]
     fn a_closed_stdout_exits_141_without_a_panic() {
-        let mut child = hog()
-            .args(["--color", "never"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("hog must start");
+        let mut child = spawn_locked(
+            hog()
+                .args(["--color", "never"])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped()),
+        )
+        .expect("hog must start");
 
         let mut stdin = child.stdin.take().expect("stdin was piped");
         // A writer thread: hog blocks on a full stdout pipe long before this
@@ -737,15 +782,16 @@ mod exit_codes {
         // one short line, so it finishes before the reader is missed and exits
         // 0 — which is right, and is why it is not in this list.
         for verb in [vec!["config", "exclude"], vec!["config"]] {
-            let mut child = hog()
-                .arg("--config")
-                .arg(&path)
-                .args(&verb)
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .expect("hog must start");
+            let mut child = spawn_locked(
+                hog()
+                    .arg("--config")
+                    .arg(&path)
+                    .args(&verb)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped()),
+            )
+            .expect("hog must start");
 
             // Read one buffer's worth, then hang up: `| head -1`.
             let mut stdout = child.stdout.take().expect("stdout was piped");
@@ -813,7 +859,7 @@ mod terminal_gate {
         };
 
         assert_eq!(code, 0, "got: {text}");
-        assert!(text.contains("config.toml"), "got: {text}");
+        assert!(text.contains(".hog.toml"), "got: {text}");
         assert!(!text.contains("stdin is a terminal"), "got: {text}");
     }
 
@@ -974,12 +1020,13 @@ mod completions {
     /// straight into a closed pipe would panic instead of exiting 141.
     #[test]
     fn a_closed_stdout_exits_141_without_a_panic() {
-        let mut child = hog()
-            .args(["completions", "bash"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("hog must start");
+        let mut child = spawn_locked(
+            hog()
+                .args(["completions", "bash"])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped()),
+        )
+        .expect("hog must start");
 
         drop(child.stdout.take().expect("stdout was piped"));
         let out = child.wait_with_output().expect("hog must finish");
@@ -1005,14 +1052,19 @@ mod completions {
 mod dynamic_help {
     use super::*;
 
-    /// Writes a config under a directory of this test's own, and returns both.
-    fn config_with(name: &str, body: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+    /// Writes a config under a directory of this test's own, and returns it.
+    ///
+    /// The file is always reached through `--config` or `$HOG_CONFIG`, never by
+    /// discovery, so its name is deliberately *not* `.hog.toml`: a test that
+    /// passed only because the default path happened to point here would prove
+    /// nothing about the pre-pass this module exists to check.
+    fn config_with(name: &str, body: &str) -> std::path::PathBuf {
         let dir =
             std::env::temp_dir().join(format!("hog-dynamic-help-{}-{name}", std::process::id()));
-        std::fs::create_dir_all(dir.join("hog")).expect("the setup mkdir succeeds");
-        let file = dir.join("hog").join("config.toml");
+        std::fs::create_dir_all(&dir).expect("the setup mkdir succeeds");
+        let file = dir.join("config.toml");
         std::fs::write(&file, body).expect("the setup write succeeds");
-        (dir, file)
+        file
     }
 
     fn help_text(args: &[&str], env: &[(&str, &str)]) -> String {
@@ -1026,7 +1078,7 @@ mod dynamic_help {
     /// before `--config` is seen and the block below would show `echo {@}`.
     #[test]
     fn an_explicit_config_on_the_command_line_is_the_one_described() {
-        let (_, file) = config_with("explicit", "command = \"ssh {0} 'docker logs {1}'\"\n");
+        let file = config_with("explicit", "command = \"ssh {0} 'docker logs {1}'\"\n");
 
         let text = help_text(&["--config", &file.display().to_string(), "--help"], &[]);
 
@@ -1062,7 +1114,7 @@ mod dynamic_help {
     /// `--config`, and the pre-pass has to resolve it the same way.
     #[test]
     fn hog_config_from_the_environment_reaches_the_block() {
-        let (_, file) = config_with("from-env", "command = \"kubectl logs -f -l app={0}\"\n");
+        let file = config_with("from-env", "command = \"kubectl logs -f -l app={0}\"\n");
 
         let text = help_text(&["--help"], &[("HOG_CONFIG", &file.display().to_string())]);
 
@@ -1072,16 +1124,19 @@ mod dynamic_help {
     }
 
     /// Branch 4 — no config at all: the built-in, marked as built in, with the
-    /// `hog config init` hint HLD §5 asks for by name.
+    /// hint HLD §5 asks for by name. `--help` is answered by clap and exits
+    /// before a run begins, so it is also the one invocation that still sees a
+    /// machine with no config file on it.
     #[test]
-    fn with_no_config_the_block_is_the_built_in_plus_config_init() {
+    fn with_no_config_the_block_is_the_built_in_plus_the_way_to_set_one() {
         let text = help_text(&["--help"], &[]);
 
         assert!(text.contains("Configured command"), "{text}");
         assert!(text.contains("built in"), "{text}");
         assert!(text.contains("echo {@}"), "{text}");
         assert!(text.contains("Takes any number of arguments:"), "{text}");
-        assert!(text.contains("hog config init"), "{text}");
+        assert!(text.contains("hog config command set"), "{text}");
+        assert!(!text.contains("config init"), "{text}");
     }
 
     /// The block is not `--help`-only: the last row of the mode table prints
@@ -1097,14 +1152,14 @@ mod dynamic_help {
         assert_eq!(code, 2, "got: {text}");
         assert!(text.contains("stdin is a terminal"), "got: {text}");
         assert!(text.contains("Configured command"), "got: {text}");
-        assert!(text.contains("hog config init"), "got: {text}");
+        assert!(text.contains("hog config command set"), "got: {text}");
     }
 
     /// A template the config sets but hog cannot split: `--help` still prints,
     /// and says the template is broken instead of inventing an arity for it.
     #[test]
     fn a_broken_template_is_reported_in_the_block() {
-        let (_, file) = config_with("broken", "command = \"ssh {0} 'docker logs\"\n");
+        let file = config_with("broken", "command = \"ssh {0} 'docker logs\"\n");
 
         let text = help_text(&["--config", &file.display().to_string(), "--help"], &[]);
 
@@ -1118,7 +1173,7 @@ mod dynamic_help {
     /// step around it too.
     #[test]
     fn the_version_flag_still_works_alongside_an_explicit_config() {
-        let (_, file) = config_with("version", "command = \"true\"\n");
+        let file = config_with("version", "command = \"true\"\n");
 
         let (stdout, stderr, code) =
             run(&["--config", &file.display().to_string(), "--version"], b"");

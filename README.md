@@ -184,7 +184,7 @@ arguments, `{@}` accepts any number, and both together set a floor with no
 ceiling. `hog --help` prints your own template, its arity and an example:
 
 ```
-Configured command (~/.config/hog/config.toml):
+Configured command (~/.hog.toml):
   ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h myapp-{1}-1'
 
 Takes 2 arguments:
@@ -250,42 +250,60 @@ practice.
 
 ## Configuration
 
+There is nothing to set up: the first time `hog` runs and finds no config file,
+it writes one and says so.
+
 ```console
-$ hog config init
-created /home/you/.config/hog/config.toml
+$ cat app.log | hog
+hog: created /home/you/.hog.toml
+10:32:01 [INF] server started port=8080
 $ hog config path
-/home/you/.config/hog/config.toml
+/home/you/.hog.toml
 $ hog config edit
 ```
+
+The note goes to stderr, once, so `cat app.log | hog | grep …` never sees it.
+The file `hog` writes is the commented starter, and every value in it is the
+built-in default with `command` left commented out — so the run that creates it
+renders exactly what the run before it would have. If the file cannot be written (a
+read-only `$HOME`, no `$HOME` at all), `hog` says so in one line and carries on
+with the built-in defaults; it will not refuse to show you logs over a config
+file.
 
 The first of these that exists wins, and files are never merged:
 
 1. `--config PATH` — a missing file here is an error, not a fallback.
 2. `$HOG_CONFIG` — the same, from the environment.
-3. `$XDG_CONFIG_HOME/hog/config.toml`, or `~/.config/hog/config.toml`.
+3. `~/.hog.toml` — written from the starter if it is not there yet.
 4. Nothing — the built-in defaults, silently.
+
+Only line 3 is ever created. A file you named yourself and misspelled stays an
+error, because a config quietly written to a path you did not expect is a worse
+answer than being told.
 
 Values then layer: **built-in defaults < config file < command-line flags.**
 
-`~/.config` holds on macOS too. `hog` is a developer CLI that belongs in your
-dotfiles next to `~/.config/gh`, and the same file has to work unchanged on the
-Linux hosts you ssh into. There is deliberately **no** implicit `./hog.toml` and
-no walk up the directory tree: the config names a command that `hog` executes,
-so picking one up from the current directory would turn `git clone && cd && hog
-prod api` into a way to run a stranger's command. Pass `--config ./hog.toml`
-when a per-project config is what you want.
+One dotfile in your home directory, on macOS as everywhere else: `hog` is a
+developer CLI that belongs in your dotfiles, and the same file has to work
+unchanged on the Linux hosts you ssh into. `~/.hog.toml` is looked for in
+`$HOME` **only** — there is deliberately no implicit `./hog.toml` or
+`./.hog.toml` beside the working directory and no walk up the directory tree.
+The config names a command that `hog` executes, so picking one up from the
+current directory would turn `git clone && cd && hog prod api` into a way to run
+a stranger's command. Pass `--config ./hog.toml` when a per-project config is
+what you want.
 
 An unknown key is a warning with a line number, never an error:
 
 ```
-warning: config.toml:4: unknown key `output.command`
+warning: /home/you/.hog.toml:4: unknown key `output.command`
 ```
 
 That is on purpose in both directions. A typo gets named instead of silently
 ignored, and a config written for a newer `hog` still runs on an older one.
 
-`hog config init` writes a fully commented starter file; the commentary in it is
-the reference for the format. In outline:
+The file `hog` writes for you is fully commented, and that commentary is the
+reference for the format. In outline:
 
 ```toml
 exclude = []                                  # dotted paths to hide
@@ -319,7 +337,6 @@ number. It was a real bug in the design document this tool was written from.)
 | --- | --- |
 | `hog config` | The resolved configuration, and which file it came from. |
 | `hog config path` | Just the path, one line — safe inside `$(…)`. |
-| `hog config init` | Write the commented starter config, if none exists. |
 | `hog config edit` | Open it in `$VISUAL` / `$EDITOR`, and check it on the way out. |
 | `hog config exclude` | The persistent exclude list, one path per line. |
 | `hog config exclude add trace_id,log_id` | Append, keeping every comment in the file. |
@@ -396,8 +413,8 @@ time_zone = "utc"
 or pass `--timezone utc` for a single run. Any IANA name works too, so
 `time_zone = "Europe/Moscow"` pins a team to one zone regardless of laptops.
 
-**Your exclude list is not migrated automatically.** `hog config init` writes
-the fourteen fields from the original `hulog` list into the starter config
+**Your exclude list is not migrated automatically.** The config `hog` writes on
+its first run carries the fourteen fields from the original `hulog` list
 *commented out*, for you to uncomment. They are also written out one by one
 rather than collapsed: the original list excludes the leaf
 `grpc.request.deadline` while leaving `grpc.request` alone, which means the
@@ -408,7 +425,7 @@ Out of the box `hog` hides nothing at all.
 
 ## Two flags in the starter template that look like noise
 
-The template `hog config init` writes is this:
+The template in the starter config is this:
 
 ```toml
 command = "ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h myapp-{1}-1'"
@@ -493,7 +510,7 @@ forever.
 | Variable | Effect |
 | --- | --- |
 | `HOG_CONFIG` | Config file to read, unless `--config` is given. |
-| `XDG_CONFIG_HOME`, `HOME` | Where the default config is looked for. |
+| `HOME` | Where the default config `~/.hog.toml` is looked for. |
 | `NO_COLOR` | Set to anything to turn colour off. |
 | `CLICOLOR_FORCE` | Set to anything to force colour on, even into a pipe. |
 | `TERM` | How much colour the terminal takes; true colour is downgraded to 256 where needed. |

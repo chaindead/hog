@@ -28,8 +28,8 @@
 //!
 //! # Isolation
 //!
-//! Every test gets its own throwaway directory, used as both `$XDG_CONFIG_HOME`
-//! and `$HOME`, and `$HOG_CONFIG` is removed from the environment — so the
+//! Every test gets its own throwaway directory, used as `$HOME`, and
+//! `$HOG_CONFIG` is removed from the environment — so the
 //! machine's real config cannot change an outcome and a test cannot write
 //! anywhere but its own directory. The stubs are shell scripts rather than
 //! `ssh`, so the suite needs no network, no host and no credentials. hog spawns
@@ -44,13 +44,14 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use assert_cmd::cargo::CommandCargoExt as _;
+use hog::config::discover::CONFIG_FILE;
 
 /// Makes every fixture directory unique even if two tests pick the same name.
 /// The pid alone is not enough: `cargo test` runs this file's tests as threads
 /// of **one** process, so the pid is shared and only the counter separates them.
 static NEXT: AtomicU32 = AtomicU32::new(0);
 
-/// A throwaway `$XDG_CONFIG_HOME` plus a place to put stub scripts.
+/// A throwaway `$HOME` plus a place to put stub scripts.
 struct Fake {
     path: PathBuf,
 }
@@ -63,7 +64,16 @@ impl Fake {
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(path.join("hog")).expect("the fake home must be creatable");
+        fs::create_dir_all(&path).expect("the fake home must be creatable");
+        // The starter config, which is what hog itself would write into this
+        // `$HOME` on its first run. The fixture starts where a real machine is
+        // after one, for two reasons: it configures nothing these tests are
+        // about — the starter leaves `command` commented out, so the built-in
+        // `echo {@}` still applies — and it keeps `hog: created …` out of the
+        // stderr several rows below assert is empty. Config creation itself is
+        // `tests/config_cli.rs`'s subject, not this file's.
+        fs::write(path.join(CONFIG_FILE), hog::config::edit::STARTER)
+            .expect("the starter must be writable");
         Self { path }
     }
 
@@ -87,7 +97,7 @@ impl Fake {
             "the fixture writes a basic TOML string: {template}"
         );
         fs::write(
-            self.path.join("hog/config.toml"),
+            self.path.join(CONFIG_FILE),
             format!("command = \"{template}\"\n"),
         )
         .expect("the config must be writable");
@@ -109,7 +119,6 @@ impl Fake {
             .env_remove("CLICOLOR_FORCE")
             .env_remove("COLORTERM")
             .env_remove("HOG_CONFIG")
-            .env("XDG_CONFIG_HOME", &self.path)
             .env("HOME", &self.path)
             .args(["--color", "never", "--timezone", "utc"])
             .args(args);
@@ -153,7 +162,6 @@ impl Fake {
             .env_remove("CLICOLOR_FORCE")
             .env_remove("COLORTERM")
             .env_remove("HOG_CONFIG")
-            .env("XDG_CONFIG_HOME", &self.path)
             .env("HOME", &self.path);
 
         if cfg!(target_os = "macos") {

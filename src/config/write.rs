@@ -3,8 +3,8 @@
 //! Four steps, and each one is there because of a specific way the naive
 //! version loses data (HLD §3):
 //!
-//! 1. **canonicalize the target.** `~/.config/hog/config.toml` is very often a
-//!    symlink into a dotfiles repo. Renaming onto the link path would replace
+//! 1. **canonicalize the target.** `~/.hog.toml` is very often a symlink into
+//!    a dotfiles repo. Renaming onto the link path would replace
 //!    the link with a regular file, quietly detaching the user's config from
 //!    the repo they track it in. Resolving first means the write lands on the
 //!    real file and the link survives.
@@ -53,7 +53,7 @@ const TMP_ATTEMPTS: u32 = 8;
 #[cfg(unix)]
 pub const NEW_FILE_MODE: u32 = 0o600;
 
-/// Mode for a config directory hog creates, matching `~/.ssh` and `~/.config/gh`.
+/// Mode for a config directory hog creates, matching `~/.ssh` and `~/.gnupg`.
 #[cfg(unix)]
 pub const NEW_DIR_MODE: u32 = 0o700;
 
@@ -79,8 +79,8 @@ pub fn save(path: &Path, document: &DocumentMut) -> anyhow::Result<()> {
 ///
 /// The four steps in the module docs, in order. The parent directory is
 /// expected to exist — [`ensure_parent_dir`] is a separate call so that
-/// creating `~/.config/hog` is a deliberate act of `hog config`, not a side
-/// effect of any write.
+/// creating a directory for a `--config` path is a deliberate act of
+/// `hog config`, not a side effect of any write.
 ///
 /// Permissions follow the target: replacing an existing file keeps that file's
 /// mode, and a new one gets [`NEW_FILE_MODE`]. Losing a user's `0600` because
@@ -104,17 +104,18 @@ pub fn write_atomic(path: &Path, contents: &str) -> anyhow::Result<()> {
     written
 }
 
-/// Creates `path` with `contents` only if nothing is there yet (`hog config
-/// --init`).
+/// Creates `path` with `contents` only if nothing is there yet.
 ///
 /// Uses `OpenOptions::create_new`, so the "does it exist?" question is answered
 /// by the kernel at the moment of creation rather than by an `exists()` call
-/// that a second process can invalidate. An existing config is never
-/// overwritten: `--init` is a convenience, and a user who ran it twice must not
-/// lose the file they wrote in between.
+/// that a second process can invalidate. That is not a formality here: hog
+/// creates the default config by itself on a first run, so two `hog`s started
+/// at the same moment on a fresh machine race for this exact file, and the
+/// loser has to read what the winner wrote rather than write over it. An
+/// existing config is never overwritten.
 ///
-/// Missing parent directories are created first — `--init` is precisely the
-/// command run when `~/.config/hog` does not exist yet.
+/// Missing parent directories are created first: the default `~/.hog.toml`
+/// needs none, but `hog --config build/ci/hog.toml config edit` does.
 pub fn create_new(path: &Path, contents: &str) -> anyhow::Result<Init> {
     ensure_parent_dir(path)?;
     let mut file = match open_exclusive(path) {
@@ -134,7 +135,8 @@ pub fn create_new(path: &Path, contents: &str) -> anyhow::Result<Init> {
 ///
 /// An existing path is canonicalized outright. A missing one has its **parent**
 /// canonicalized and the file name joined back on, which is what makes writing
-/// a new file inside a symlinked `~/.config` land in the right place.
+/// a new file inside a symlinked home or dotfiles directory land in the right
+/// place.
 ///
 /// Note the deliberate asymmetry with `fs::canonicalize`, which fails outright
 /// on a missing path: this has to work for a config that does not exist yet.
@@ -148,7 +150,8 @@ pub fn resolve_target(path: &Path) -> anyhow::Result<PathBuf> {
     let parent = parent_dir(path);
     let resolved = parent.canonicalize().with_context(|| {
         format!(
-            "the directory {} does not exist (run `hog config init` to create it)",
+            "the directory {} does not exist (create it, or name another file \
+             with `hog --config PATH`)",
             parent.display()
         )
     })?;
@@ -157,8 +160,9 @@ pub fn resolve_target(path: &Path) -> anyhow::Result<PathBuf> {
 
 /// Creates the parent directory chain of `path` if it is missing.
 ///
-/// `~/.config/hog` on a fresh machine. On unix the directory is created `0700`,
-/// matching what `ssh` and `gh` do with their own config directories.
+/// The directory a `--config` path names on a fresh machine. On unix it is
+/// created `0700`, matching what `ssh` and `gnupg` do with their own config
+/// directories.
 pub fn ensure_parent_dir(path: &Path) -> anyhow::Result<()> {
     let parent = parent_dir(path);
     if parent.is_dir() {
@@ -511,22 +515,23 @@ mod tests {
             .expect_err("a missing directory cannot be resolved");
         let message = format!("{error:#}");
         assert!(message.contains("nope"), "{message}");
-        assert!(message.contains("`hog config init`"), "{message}");
+        assert!(message.contains("--config"), "{message}");
     }
 
     #[test]
-    fn init_writes_once_and_then_refuses() {
+    fn create_new_writes_once_and_then_refuses() {
         let dir = TempDir::new("init");
         let target = dir.join("nested").join("config.toml");
 
         assert_eq!(
-            create_new(&target, STARTER).expect("the first init succeeds"),
+            create_new(&target, STARTER).expect("the first creation succeeds"),
             Init::Written
         );
         assert_eq!(read(&target), STARTER);
 
         assert_eq!(
-            create_new(&target, "exclude = [\"clobbered\"]\n").expect("the second init succeeds"),
+            create_new(&target, "exclude = [\"clobbered\"]\n")
+                .expect("the second creation succeeds"),
             Init::AlreadyExists
         );
         assert_eq!(read(&target), STARTER, "the existing config survived");
@@ -538,7 +543,7 @@ mod tests {
         let dir = TempDir::new("private");
         let target = dir.join("hog").join("config.toml");
 
-        create_new(&target, STARTER).expect("the init succeeds");
+        create_new(&target, STARTER).expect("the creation succeeds");
 
         assert_eq!(mode_of(&target), NEW_FILE_MODE);
         assert_eq!(mode_of(&dir.join("hog")), NEW_DIR_MODE);

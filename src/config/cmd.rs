@@ -10,7 +10,6 @@
 //! |---|---|
 //! | `hog config` | the resolved configuration, and the path it came from |
 //! | `hog config path` | that path alone |
-//! | `hog config init` | write the commented starter |
 //! | `hog config edit` | open it in `$VISUAL` / `$EDITOR` |
 //! | `hog config exclude` | the persistent exclude list |
 //! | `hog config exclude add a,b` | append to it, comments intact |
@@ -25,7 +24,8 @@
 //! field per line, `hog config command` prints one template. That is what makes
 //! `$(hog config path)` and `hog config exclude | wc -l` work. Everything that
 //! is commentary — an unknown-key warning, "the list is empty", "this is the
-//! built-in default", "created …" on the way into an editor — goes to stderr.
+//! built-in default", `hog: created …` on the way into an editor — goes to
+//! stderr.
 //!
 //! The verbs that *change* something report the change on stdout instead, since
 //! for those the report is the answer.
@@ -57,7 +57,7 @@ use toml_edit::{DocumentMut, Item, Value};
 use super::discover::{self, Env, Location};
 use super::edit::{self, Change};
 use super::load::{self, Loaded};
-use super::write::{self, Init};
+use super::write;
 use crate::cli::{ColorChoiceArg, CommandOp, ConfigCmd, ExcludeOp};
 use crate::command::{self, CommandError, template};
 use crate::settings::{self, Settings, TimeFormat, TimeZoneSpec};
@@ -133,8 +133,6 @@ pub fn run<O: Write, E: Write>(
             Ok(())
         }
 
-        Some(ConfigCmd::Init) => init(&location, out),
-
         Some(ConfigCmd::Edit) => edit_in_editor(request, &location, warnings),
 
         Some(ConfigCmd::Exclude { op: None }) => show_excludes(&location, out, warnings),
@@ -154,17 +152,16 @@ pub fn run<O: Write, E: Write>(
 
 /// Resolves the config path, or explains why there is none.
 ///
-/// [`discover::locate`](super::discover::locate) returns `None` when neither
-/// `$XDG_CONFIG_HOME` nor `$HOME` gives a usable base. A normal run treats that
-/// as "use the built-in defaults" and says nothing, but `hog config` cannot:
-/// every one of its verbs is about a specific file, so it fails with the two
-/// variables named rather than printing an empty path.
+/// [`discover::locate`](super::discover::locate) returns `None` when `$HOME`
+/// gives no usable base. A normal run treats that as "use the built-in
+/// defaults" and says nothing, but `hog config` cannot: every one of its verbs
+/// is about a specific file, so it fails with the variable named rather than
+/// printing an empty path.
 fn locate_or_err(request: &Request<'_>) -> anyhow::Result<Location> {
     discover::locate(request.explicit, request.env).with_context(|| {
         format!(
-            "cannot work out where the config file lives: neither ${} nor ${} is set \
+            "cannot work out where the config file lives: ${} is not set \
              (name the file yourself with `hog --config PATH config`)",
-            discover::XDG_CONFIG_HOME_VAR,
             discover::HOME_VAR,
         )
     })
@@ -263,19 +260,6 @@ fn settings_of(loaded: Option<&Loaded>) -> anyhow::Result<Settings> {
 }
 
 // ================================================================ write verbs
-
-/// `hog config init`.
-fn init<O: Write>(location: &Location, out: &mut O) -> anyhow::Result<()> {
-    match write::create_new(&location.path, edit::STARTER)? {
-        Init::Written => writeln!(out, "created {}", location.path.display())?,
-        Init::AlreadyExists => writeln!(
-            out,
-            "{} already exists, so nothing was written",
-            location.path.display()
-        )?,
-    }
-    Ok(())
-}
 
 /// `hog config exclude add …` and `hog config exclude rm …`.
 ///
@@ -479,7 +463,10 @@ fn apply_edits<W: Write + ?Sized>(
 ///
 /// 1. **the file is seeded first.** Opening an editor on a path that does not
 ///    exist gives an empty buffer, and the user writes a config from memory;
-///    the starter *is* the documentation of the format (HLD §3).
+///    the starter *is* the documentation of the format (HLD §3). The default
+///    file is already there by now — [`config::ensure_default`](super::ensure_default)
+///    created it at the top of the run — so what this actually covers is a
+///    `--config` path the user named and wants opened.
 /// 2. **the editor's own exit status is honoured.** `vi` exiting non-zero
 ///    usually means it never wrote anything, so saying "done" would be a lie.
 /// 3. **the result is parsed.** A typo is reported now, with the file and the
@@ -497,9 +484,7 @@ fn edit_in_editor<E: Write>(
         return Err(no_editor(&location.path));
     };
 
-    if write::create_new(&location.path, edit::STARTER)? == Init::Written {
-        writeln!(warnings, "created {}", location.path.display())?;
-    }
+    super::create_starter(&location.path, warnings)?;
 
     let status = Command::new(&program)
         .args(&args)
@@ -597,8 +582,8 @@ fn check_after_edit<E: Write>(location: &Location, warnings: &mut E) -> anyhow::
 /// exactly what a run with no flags would use:
 ///
 /// ```text
-/// path:      /Users/you/.config/hog/config.toml
-/// source:    $XDG_CONFIG_HOME
+/// path:      /Users/you/.hog.toml
+/// source:    $HOME
 /// file:      loaded
 /// command:   ssh -tt {0} 'docker logs -f myapp-{1}-1'
 /// exclude:   grpc.code, trace_id
@@ -610,8 +595,9 @@ fn check_after_edit<E: Write>(location: &Location, warnings: &mut E) -> anyhow::
 /// sort_keys: true
 /// ```
 ///
-/// `loaded` is `None` when no file exists yet; every line still prints, showing
-/// the built-in defaults, and the `file:` line says how to create it.
+/// `loaded` is `None` when there is no file — which, since the run creates one,
+/// means it could not be created. Every line still prints, showing the built-in
+/// defaults, and the `file:` line says what happened.
 fn print_summary<W: Write>(
     location: &Location,
     loaded: Option<&Loaded>,
@@ -623,11 +609,11 @@ fn print_summary<W: Write>(
     line(out, "source", location.source.label())?;
     match loaded {
         Some(_) => line(out, "file", "loaded")?,
-        None => line(
-            out,
-            "file",
-            "not there yet — `hog config init` writes a commented starter",
-        )?,
+        // Rare, and worth saying plainly: the run already tried to create this
+        // file and could not — a read-only `$HOME` is the usual reason, and it
+        // printed why on stderr on its way past. The settings below are the
+        // built-in defaults, which is exactly what the file would have said.
+        None => line(out, "file", "not there (hog could not create it)")?,
     }
     // The effective template, which is the built-in `echo {@}` until the file
     // sets one (HLD §5). Saying which of the two it is matters: the default one
@@ -767,7 +753,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
-    use super::super::discover::{CONFIG_DIR, CONFIG_FILE, Source};
+    use super::super::discover::{CONFIG_FILE, Source};
     use super::*;
 
     /// A temp directory that removes itself (`test-fixture-raii`).
@@ -790,14 +776,13 @@ mod tests {
 
         /// The config path discovery will compute for this directory.
         fn config(&self) -> PathBuf {
-            self.path.join(CONFIG_DIR).join(CONFIG_FILE)
+            self.path.join(CONFIG_FILE)
         }
 
         fn env(&self) -> Env {
             Env {
                 hog_config: None,
-                xdg_config_home: Some(OsString::from(self.path.clone())),
-                home: None,
+                home: Some(OsString::from(self.path.clone())),
             }
         }
     }
@@ -862,8 +847,22 @@ mod tests {
         fs::read_to_string(path).expect("the config is readable")
     }
 
-    // ------------------------------------------------------------ path / init
+    /// Puts the starter in place, the way a real run's
+    /// [`ensure_default`](super::super::ensure_default) would have before any
+    /// verb ran.
+    ///
+    /// None of the verbs create the default file themselves any more, so a test
+    /// about editing an existing config has to say so.
+    fn seed(dir: &TempDir) {
+        super::super::create_starter(&dir.config(), &mut Vec::new())
+            .expect("the starter is writable");
+    }
 
+    // ------------------------------------------------------------------- path
+
+    /// The verb creates nothing, and that is still its own rule rather than an
+    /// accident of the run: `hog config path` answers a question, and the file
+    /// it names is brought into existence above this module.
     #[test]
     fn path_prints_the_file_and_nothing_else() {
         let dir = TempDir::new("path");
@@ -875,19 +874,6 @@ mod tests {
             !dir.config().exists(),
             "`config path` must not create anything"
         );
-    }
-
-    #[test]
-    fn init_writes_the_starter_once_and_says_so_the_second_time() {
-        let dir = TempDir::new("init");
-
-        let (out, _) = config(&dir.env(), Some(&ConfigCmd::Init)).expect("`config init` succeeds");
-        assert!(out.starts_with("created "), "{out}");
-        assert_eq!(read(&dir.config()), edit::STARTER);
-
-        let (out, _) = config(&dir.env(), Some(&ConfigCmd::Init)).expect("a second init succeeds");
-        assert!(out.contains("already exists"), "{out}");
-        assert_eq!(read(&dir.config()), edit::STARTER, "the file survived");
     }
 
     // --------------------------------------------------------------- excludes
@@ -947,7 +933,7 @@ mod tests {
         fs::write(&path, "exclude = [\n[output\n").expect("the setup write succeeds");
 
         let err = config(&dir.env(), Some(&add(&["a"]))).expect_err("a broken file fails");
-        assert!(err.to_string().contains("config.toml:"), "{err}");
+        assert!(err.to_string().contains(".hog.toml:"), "{err}");
         assert_eq!(
             read(&path),
             "exclude = [\n[output\n",
@@ -1007,7 +993,7 @@ mod tests {
     #[test]
     fn a_broken_template_is_refused_before_anything_is_written() {
         let dir = TempDir::new("bad-template");
-        config(&dir.env(), Some(&ConfigCmd::Init)).expect("init succeeds");
+        seed(&dir);
 
         for (template, needle) in [
             ("ssh {0} 'docker logs", "unclosed quote"),
@@ -1037,7 +1023,7 @@ mod tests {
     #[test]
     fn setting_the_command_writes_the_key_and_keeps_every_comment() {
         let dir = TempDir::new("set-command");
-        config(&dir.env(), Some(&ConfigCmd::Init)).expect("init succeeds");
+        seed(&dir);
 
         // The starter ships `command` commented out, so the built-in `echo {@}`
         // is what runs until someone sets their own. Setting one has to add the
@@ -1129,7 +1115,7 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains("$VISUAL"), "{message}");
         assert!(message.contains("$EDITOR"), "{message}");
-        assert!(message.contains("config.toml"), "{message}");
+        assert!(message.contains(CONFIG_FILE), "{message}");
         assert!(
             !dir.config().exists(),
             "the refusal created a file it never opened"
@@ -1161,14 +1147,16 @@ mod tests {
 
     // ---------------------------------------------------------------- summary
 
+    /// No file, which for a real run means hog could not create one. Every row
+    /// still prints, showing the built-in defaults, and `file:` says why.
     #[test]
     fn the_summary_names_the_path_the_source_and_the_defaults() {
         let dir = TempDir::new("summary-empty");
         let (out, _) = config(&dir.env(), None).expect("the summary succeeds");
 
         assert!(out.contains(&dir.config().display().to_string()), "{out}");
-        assert!(out.contains("source:    $XDG_CONFIG_HOME"), "{out}");
-        assert!(out.contains("`hog config init`"), "{out}");
+        assert!(out.contains("source:    $HOME"), "{out}");
+        assert!(out.contains("file:      not there"), "{out}");
         assert!(out.contains("exclude:   (none)"), "{out}");
         assert!(
             out.contains("ts:        ts, time, timestamp, @timestamp"),
@@ -1182,7 +1170,7 @@ mod tests {
     #[test]
     fn the_summary_shows_what_the_file_changed() {
         let dir = TempDir::new("summary-file");
-        config(&dir.env(), Some(&ConfigCmd::Init)).expect("init succeeds");
+        seed(&dir);
         config(&dir.env(), Some(&add(&["trace_id"]))).expect("the add succeeds");
 
         let (out, _) = config(&dir.env(), None).expect("the summary succeeds");
@@ -1222,7 +1210,7 @@ mod tests {
     }
 
     #[test]
-    fn nowhere_to_look_is_an_error_that_names_both_variables() {
+    fn nowhere_to_look_is_an_error_that_names_the_variable() {
         let env = Env::default();
         let request = Request {
             action: Some(&ConfigCmd::Path),
@@ -1232,8 +1220,8 @@ mod tests {
         };
         let err = run(&request, &mut Vec::new(), &mut Vec::new()).expect_err("nowhere to look");
         let message = format!("{err:#}");
-        assert!(message.contains("XDG_CONFIG_HOME"), "{message}");
-        assert!(message.contains("HOME"), "{message}");
+        assert!(message.contains("$HOME"), "{message}");
+        assert!(message.contains("--config"), "{message}");
     }
 
     #[test]

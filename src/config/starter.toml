@@ -1,6 +1,6 @@
-# ~/.config/hog/config.toml  —  `hog config path` prints the file that is
-# actually read. Every key is optional. An unknown key is a warning with a line
-# number, not an error, so a config written for a newer hog still works here.
+# ~/.hog.toml  —  `hog config path` prints the file that is actually read.
+# Every key is optional. An unknown key is a warning with a line number, not an
+# error, so a config written for a newer hog still works here.
 
 # Fields hidden from the output. Keys are dotted JSON paths as they look after
 # flattening, and excluding "grpc" prunes the whole subtree under it.

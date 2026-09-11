@@ -84,7 +84,7 @@ impl Loaded {
     /// is the usual compiler-ish one an editor can jump to:
     ///
     /// ```text
-    /// warning: /Users/you/.config/hog/config.toml:12: unknown key `output.time_fmt`
+    /// warning: /Users/you/.hog.toml:12: unknown key `output.time_fmt`
     /// ```
     ///
     /// A warning, never an error: denying unknown keys would break a config
@@ -126,22 +126,23 @@ pub struct UnknownKey {
 pub fn load(explicit: Option<&Path>, env: &Env) -> anyhow::Result<Option<Loaded>> {
     match discover::locate(explicit, env) {
         Some(location) => read(location),
-        // Neither $XDG_CONFIG_HOME nor $HOME: there is no file to miss.
+        // No $HOME: there is no file to miss.
         None => Ok(None),
     }
 }
 
 /// Reads and parses the file named by `location`.
 ///
-/// `Ok(None)` is returned when the file does not exist **and** the location is
-/// not explicit. An unreadable file that does exist is always an error: a
-/// permissions problem is not the same as "no config", and treating it as one
-/// would render the stream with the wrong settings.
+/// `Ok(None)` is returned when the location is not explicit and nothing there
+/// is a file — it does not exist, it is a directory, or a component of the path
+/// is not one ([`is_not_a_file`]). An unreadable file that *does* exist is
+/// always an error: a permissions problem is not the same as "no config", and
+/// treating it as one would render the stream with the wrong settings.
 ///
 /// # Errors
 ///
-/// A missing file at an explicit location, any other I/O failure, or a parse
-/// failure from [`parse`].
+/// A missing file at an explicit location, any I/O failure on a file that is
+/// really there, or a parse failure from [`parse`].
 pub fn read(location: Location) -> anyhow::Result<Option<Loaded>> {
     let text = match fs::read_to_string(&location.path) {
         Ok(text) => text,
@@ -158,6 +159,19 @@ pub fn read(location: Location) -> anyhow::Result<Option<Loaded>> {
             }
             return Ok(None);
         }
+        // The same answer as `NotFound`, phrased by the kernel differently
+        // because the *path* is unusable rather than merely empty: `$HOME` is a
+        // regular file (`ENOTDIR`), or something made a directory called
+        // `.hog.toml` (`EISDIR`). Either way there is no config file here and
+        // there never was one — and since hog creates the default file itself
+        // now, refusing to render a single log line over a `$HOME` it could not
+        // write into would break the one promise auto-creation has to keep: a
+        // config hog failed to make is worth the built-in defaults, never an
+        // exit code. A path the user *named* keeps the error, with the reason
+        // in it: they asked for that file and deserve to hear why it is not one.
+        Err(err) if !location.source.is_explicit() && is_not_a_file(err.kind()) => {
+            return Ok(None);
+        }
         Err(err) => {
             return Err(err).with_context(|| {
                 format!("failed to read the config file {}", location.path.display())
@@ -166,6 +180,21 @@ pub fn read(location: Location) -> anyhow::Result<Option<Loaded>> {
     };
 
     parse(&text, location).map(Some)
+}
+
+/// Does this read failure mean "nothing here is a file", as opposed to "a file
+/// is here and hog may not read it"?
+///
+/// The distinction is the whole point: `EACCES` on a real `~/.hog.toml` stays
+/// fatal, because that file *is* the user's config and rendering the stream
+/// with the built-in defaults instead would be a silent wrong answer. A
+/// directory, or a `$HOME` that is not a directory, holds no config to be wrong
+/// about.
+fn is_not_a_file(kind: io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        io::ErrorKind::IsADirectory | io::ErrorKind::NotADirectory
+    )
 }
 
 /// Parses config text that is already in memory.
@@ -339,7 +368,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use super::super::discover::{CONFIG_DIR, CONFIG_FILE, Source};
+    use super::super::discover::{CONFIG_FILE, Source};
     use super::*;
 
     /// The commented starter config, which is also the format's documentation.
@@ -351,7 +380,7 @@ mod tests {
     fn location(path: &str) -> Location {
         Location {
             path: PathBuf::from(path),
-            source: Source::HomeConfig,
+            source: Source::Home,
         }
     }
 
@@ -408,7 +437,7 @@ mod tests {
         assert!(unknown("[fields]\nts = \"at\"\n[output]\ncolor = \"never\"\n").is_empty());
     }
 
-    /// The starter file is what `hog config --init` writes. If it warned about
+    /// The starter file is what hog writes on a first run. If it warned about
     /// itself, every fresh install would start with a diagnostic.
     #[test]
     fn the_starter_config_has_no_unknown_keys() {
@@ -624,7 +653,7 @@ mod tests {
         let dir = TempDir::new();
         let location = Location {
             path: dir.path.join("nothing-here.toml"),
-            source: Source::HomeConfig,
+            source: Source::Home,
         };
         let loaded = read(location).expect("a missing default config is the ordinary case");
         assert!(loaded.is_none());
@@ -669,40 +698,83 @@ mod tests {
         assert_eq!(loaded.unknown[0].path, "mystery");
     }
 
+    /// A directory at a path the user *named* is an error, and the error says
+    /// which kind of wrong it is rather than claiming the file is missing.
     #[test]
-    fn a_directory_in_place_of_the_config_is_an_error_rather_than_no_config() {
+    fn a_directory_at_a_named_path_is_an_error_rather_than_no_config() {
         let dir = TempDir::new();
         let err = read(Location {
             path: dir.path.clone(),
-            source: Source::HomeConfig,
+            source: Source::Flag,
         })
         .expect_err("a directory is not an absent file");
         assert!(err.to_string().contains("failed to read the config file"));
     }
 
+    /// The same directory at the *default* path is the built-in defaults, not
+    /// an exit code.
+    ///
+    /// hog creates `~/.hog.toml` itself now, so this is the shape a failed
+    /// creation leaves behind — someone ran `mkdir ~/.hog.toml`, or `$HOME` is
+    /// a regular file — and a tool that answers a broken `$HOME` by refusing to
+    /// print logs is useless exactly when it is needed. Nothing here is a
+    /// config file, so there is nothing to get wrong by ignoring it.
+    #[test]
+    fn a_directory_at_the_default_path_is_no_config_rather_than_an_error() {
+        let dir = TempDir::new();
+        let loaded = read(Location {
+            path: dir.path.clone(),
+            source: Source::Home,
+        })
+        .expect("a directory at a guessed path is not the user's config");
+        assert!(loaded.is_none());
+    }
+
+    /// `$HOME` is a regular file, so `$HOME/.hog.toml` cannot exist at all:
+    /// `ENOTDIR`, which is `NotFound` wearing a different hat.
+    #[test]
+    fn a_home_that_is_a_file_is_no_config_rather_than_an_error() {
+        let dir = TempDir::new();
+        let home = dir.write("home-is-a-file", "not a directory\n");
+        let loaded = read(Location {
+            path: home.join(CONFIG_FILE),
+            source: Source::Home,
+        })
+        .expect("a `$HOME` that is not a directory holds no config");
+        assert!(loaded.is_none());
+
+        // And the same path named explicitly still reports itself, with the
+        // kernel's reason underneath rather than a claim that it is missing.
+        let err = read(Location {
+            path: home.join(CONFIG_FILE),
+            source: Source::Env,
+        })
+        .expect_err("a named file that cannot exist is the user's news");
+        assert!(
+            err.to_string().contains("failed to read the config file"),
+            "{err}"
+        );
+    }
+
     // ------------------------------------------------------------------- load
 
-    /// Builds an [`Env`] whose `$XDG_CONFIG_HOME` is `dir`.
+    /// Builds an [`Env`] whose `$HOME` is `dir`.
     fn env_at(dir: &TempDir) -> Env {
         Env {
             hog_config: None,
-            xdg_config_home: Some(dir.path.clone().into_os_string()),
-            home: None,
+            home: Some(dir.path.clone().into_os_string()),
         }
     }
 
     #[test]
-    fn load_finds_the_file_under_xdg_config_home() {
+    fn load_finds_the_dotfile_in_home() {
         let dir = TempDir::new();
-        dir.write(
-            &format!("{CONFIG_DIR}/{CONFIG_FILE}"),
-            "exclude = [\"trace_id\"]\n",
-        );
+        dir.write(CONFIG_FILE, "exclude = [\"trace_id\"]\n");
 
         let loaded = load(None, &env_at(&dir))
             .expect("the file parses")
             .expect("the file exists");
-        assert_eq!(loaded.location.source, Source::XdgConfigHome);
+        assert_eq!(loaded.location.source, Source::Home);
         assert_eq!(
             loaded.model.exclude.as_deref(),
             Some(["trace_id".to_owned()].as_slice())
@@ -731,10 +803,7 @@ mod tests {
     #[test]
     fn load_prefers_the_explicit_path_over_the_default_one() {
         let dir = TempDir::new();
-        dir.write(
-            &format!("{CONFIG_DIR}/{CONFIG_FILE}"),
-            "exclude = [\"from_xdg\"]\n",
-        );
+        dir.write(CONFIG_FILE, "exclude = [\"from_home\"]\n");
         let explicit = dir.write("explicit.toml", "exclude = [\"from_flag\"]\n");
 
         let loaded = load(Some(&explicit), &env_at(&dir))

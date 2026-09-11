@@ -81,7 +81,7 @@ pub struct Cli {
     #[command(flatten)]
     pub run: RunArgs,
 
-    /// Path to the config file (default: $XDG_CONFIG_HOME/hog/config.toml).
+    /// Path to the config file (default: $HOME/.hog.toml).
     #[arg(long, global = true, env = "HOG_CONFIG", value_name = "PATH")]
     pub config: Option<PathBuf>,
 
@@ -189,15 +189,17 @@ pub enum Cmd {
 /// without an `--` dance. This replaced the v0.2 flags `-e` / `-d` / `--path` /
 /// `--init`, which are gone rather than deprecated — hog has no released
 /// version to keep faith with.
+///
+/// There is no `init` verb either, and its absence is the feature: hog writes
+/// `$HOME/.hog.toml` on the first run that finds it missing
+/// (`config::ensure_default`), so a verb whose whole job was to ask for that
+/// file would only ever report that it already existed.
 #[derive(Debug, Subcommand)]
 pub enum ConfigCmd {
     /// Print the path of the config file that is actually read.
     ///
     /// One line on stdout and nothing else, so `$(hog config path)` is a path.
     Path,
-
-    /// Write a commented starter config if none exists.
-    Init,
 
     /// Open the config file in $VISUAL or $EDITOR.
     ///

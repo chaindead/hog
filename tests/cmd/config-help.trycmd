@@ -1,10 +1,12 @@
 The documented surface of `hog config` (HLD §6). A verb that is renamed, added
-or dropped changes this file, and that is the point: the five verbs below are
+or dropped changes this file, and that is the point: the four verbs below are
 the whole of it, and each one has to describe itself in one line.
 
 The surface is subcommands, not flags (HLD §11.8). The v0.2 flags `-e`, `-d`,
 `--path` and `--init` are gone rather than deprecated, and `tests/cli_surface.rs`
-pins that each of them is now a usage error.
+pins that each of them is now a usage error. So is `init`, which was a verb here
+until hog started writing `$HOME/.hog.toml` by itself on the first run that
+finds it missing — there is nothing left for the user to ask for.
 
 The runner pins `COLUMNS`, `HOG_CONFIG` and `NO_COLOR` (see the test that
 loads this file): clap wraps to the terminal width and echoes `$HOG_CONFIG`
@@ -22,7 +24,6 @@ Usage: hog config [OPTIONS] [COMMAND]
 
 Commands:
   path     Print the path of the config file that is actually read
-  init     Write a commented starter config if none exists
   edit     Open the config file in $VISUAL or $EDITOR
   exclude  Show the persistent exclude list, or change it
   command  Show the command template, or change it
@@ -30,7 +31,7 @@ Commands:
 
 Options:
       --config <PATH>
-          Path to the config file (default: $XDG_CONFIG_HOME/hog/config.toml)
+          Path to the config file (default: $HOME/.hog.toml)
           
           [env: HOG_CONFIG=]
 
@@ -54,8 +55,7 @@ Commands:
   help  Print this message or the help of the given subcommand(s)
 
 Options:
-      --config <PATH>  Path to the config file (default: $XDG_CONFIG_HOME/hog/config.toml) [env:
-                       HOG_CONFIG=]
+      --config <PATH>  Path to the config file (default: $HOME/.hog.toml) [env: HOG_CONFIG=]
   -h, --help           Print help
 
 ```
@@ -78,7 +78,7 @@ Arguments:
 
 Options:
       --config <PATH>
-          Path to the config file (default: $XDG_CONFIG_HOME/hog/config.toml)
+          Path to the config file (default: $HOME/.hog.toml)
           
           [env: HOG_CONFIG=]
 

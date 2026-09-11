@@ -89,10 +89,10 @@ fn read_corpus(name: &str) -> Vec<u8> {
 fn command(args: &[&str]) -> Command {
     let mut command = Command::cargo_bin("hog").expect("the binary is built by `cargo test`");
     // None of these may leak in from the developer's shell: the first four
-    // decide colour, and the last three decide which config file is read. A
+    // decide colour, and the last two decide which config file is read. A
     // golden corpus rendered through somebody's personal `exclude` list is not
-    // a golden corpus. The config home is an absolute path with nothing under
-    // it, which discovery treats as the ordinary "no config yet" case.
+    // a golden corpus. `$HOME` is an absolute path with nothing in it, which
+    // discovery treats as the ordinary "no config yet" case.
     let no_config_home =
         std::env::temp_dir().join(format!("hog-golden-no-config-{}", std::process::id()));
     command
@@ -101,7 +101,6 @@ fn command(args: &[&str]) -> Command {
         .env_remove("CLICOLOR_FORCE")
         .env_remove("COLORTERM")
         .env_remove("HOG_CONFIG")
-        .env("XDG_CONFIG_HOME", &no_config_home)
         .env("HOME", &no_config_home)
         .args(args);
     command

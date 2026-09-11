@@ -7,7 +7,7 @@
 //! it, `--help` is also the answer to "I installed hog, now what?":
 //!
 //! ```text
-//! Configured command (/home/you/.config/hog/config.toml):
+//! Configured command (/home/you/.hog.toml):
 //!   ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h myapp-{1}-1'
 //!
 //! Takes 2 arguments:
@@ -114,7 +114,7 @@ pub fn parse() -> Cli {
 /// are no positional arguments and no `command` template. That row is the one
 /// place a missing template is still visible, and the help text is what makes it
 /// actionable — the block below says the built-in `echo {@}` is what would run
-/// and names `hog config init`.
+/// and names the file a template goes in.
 ///
 /// Writes are best-effort: this runs while the process is already on its way out
 /// with code 2, and a closed stderr must not become a second failure.
@@ -177,7 +177,7 @@ enum Configured {
     File { path: PathBuf, text: String },
     /// No `command` key, so the built-in `echo {@}` is what would run.
     /// `path` is where a template would go, and is `None` only when there is
-    /// nowhere to put a config at all (no `$XDG_CONFIG_HOME`, no `$HOME`).
+    /// nowhere to put a config at all (no `$HOME`).
     BuiltIn { path: Option<PathBuf> },
     /// The config could not be read at all — a missing `--config`, a syntax
     /// error, a directory in place of the file.
@@ -224,7 +224,11 @@ fn block(explicit: Option<&Path>, env: &Env) -> String {
         }
 
         Configured::BuiltIn { path } => {
-            let _ = writeln!(out, "Configured command (built in — no config yet):");
+            // Not "no config yet": since hog writes `~/.hog.toml` on the first
+            // run, the file is there on every machine that has run hog once and
+            // this branch is reached because it sets no `command`, which is the
+            // starter's own state.
+            let _ = writeln!(out, "Configured command (built in — none is set):");
             let _ = writeln!(out, "  {}", command::DEFAULT_COMMAND);
             describe(&mut out, command::DEFAULT_COMMAND);
             let _ = writeln!(out);
@@ -232,18 +236,16 @@ fn block(explicit: Option<&Path>, env: &Env) -> String {
                 Some(path) => {
                     let _ = writeln!(
                         out,
-                        "`hog config init` writes {}, then\n\
-                         `hog config command set \"<template>\"` puts your own command in it.",
+                        "`hog config command set \"<template>\"` puts your own command in\n{}.",
                         path.display()
                     );
                 }
-                // No $XDG_CONFIG_HOME and no $HOME: `config init` has nowhere
-                // to write, so it would be the wrong thing to suggest.
+                // No $HOME: there is no file to name, and none will be created.
                 None => {
                     let _ = writeln!(
                         out,
-                        "Neither $XDG_CONFIG_HOME nor $HOME is set, so hog has no default config\n\
-                         path — name one yourself with `hog --config PATH`."
+                        "$HOME is not set, so hog has no default config path — name one\n\
+                         yourself with `hog --config PATH`."
                     );
                 }
             }
@@ -373,13 +375,17 @@ mod tests {
 
     use std::ffi::OsString;
 
-    /// An [`Env`] whose config home is `dir`, so a test gets its own file.
+    /// An [`Env`] whose `$HOME` is `dir`, so a test gets its own file.
     fn env_at(dir: &Path) -> Env {
         Env {
             hog_config: None,
-            xdg_config_home: Some(OsString::from(dir)),
-            home: None,
+            home: Some(OsString::from(dir)),
         }
+    }
+
+    /// The default config file inside a test's own `$HOME`.
+    fn config_in(dir: &Path) -> PathBuf {
+        dir.join(config::discover::CONFIG_FILE)
     }
 
     fn argv(words: &[&str]) -> Vec<OsString> {
@@ -456,7 +462,7 @@ mod tests {
     #[test]
     fn a_missing_explicit_config_is_reported_in_the_block() {
         let dir = tempdir();
-        std::fs::write(dir.join("hog/config.toml"), "").ok();
+        std::fs::write(config_in(&dir), "").ok();
         let missing = dir.join("nope.toml");
 
         let text = block(Some(&missing), &env_at(&dir));
@@ -515,9 +521,10 @@ mod tests {
     }
 
     /// No config at all: the built-in, marked as built in, with the hint that
-    /// HLD §5 asks for by name.
+    /// HLD §5 asks for by name — which is now `command set` and the path,
+    /// since the file itself is no longer something the user has to ask for.
     #[test]
-    fn with_no_config_the_block_names_the_built_in_and_config_init() {
+    fn with_no_config_the_block_names_the_built_in_and_the_file() {
         let dir = tempdir();
         let env = env_at(&dir);
 
@@ -529,10 +536,14 @@ mod tests {
         assert!(text.contains("Takes any number of arguments:"), "{text}");
         assert!(text.contains("hog [ARGS]..."), "{text}");
         assert!(text.contains("hog prod api"), "{text}");
-        assert!(text.contains("hog config init"), "{text}");
+        assert!(text.contains("hog config command set"), "{text}");
         assert!(
-            text.contains(&dir.join("hog/config.toml").display().to_string()),
-            "the hint names the file it would write: {text}"
+            !text.contains("config init"),
+            "the deleted verb is still advertised: {text}"
+        );
+        assert!(
+            text.contains(&config_in(&dir).display().to_string()),
+            "the hint names the file the template goes in: {text}"
         );
     }
 
@@ -541,8 +552,7 @@ mod tests {
     #[test]
     fn a_config_without_a_command_key_still_gets_the_built_in() {
         let dir = tempdir();
-        let file = dir.join("hog/config.toml");
-        std::fs::create_dir_all(dir.join("hog")).expect("mkdir");
+        let file = config_in(&dir);
         std::fs::write(&file, "exclude = [\"trace_id\"]\n").expect("write");
 
         let text = block(None, &env_at(&dir));
@@ -550,13 +560,14 @@ mod tests {
         assert!(text.contains(&file.display().to_string()), "{text}");
     }
 
-    /// Nowhere to put a config: `hog config init` would have nothing to write,
-    /// so it is not suggested.
+    /// Nowhere to put a config: there is no file to name, and hog will not
+    /// create one either, so the flag is the only honest suggestion.
     #[test]
     fn with_nowhere_to_put_a_config_the_hint_names_the_flag_instead() {
         let text = block(None, &Env::default());
         assert!(text.contains("echo {@}"), "{text}");
-        assert!(!text.contains("hog config init"), "{text}");
+        assert!(!text.contains("hog config command set"), "{text}");
+        assert!(text.contains("$HOME is not set"), "{text}");
         assert!(text.contains("--config PATH"), "{text}");
     }
 
