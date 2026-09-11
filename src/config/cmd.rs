@@ -600,7 +600,7 @@ fn check_after_edit<E: Write>(location: &Location, warnings: &mut E) -> anyhow::
 /// path:      /Users/you/.config/hog/config.toml
 /// source:    $XDG_CONFIG_HOME
 /// file:      loaded
-/// command:   ssh -tt {0} 'docker logs -f bpam-{1}-1'
+/// command:   ssh -tt {0} 'docker logs -f myapp-{1}-1'
 /// exclude:   grpc.code, trace_id
 /// ts:        ts, time, timestamp, @timestamp
 /// level:     level, severity, lvl
@@ -1035,9 +1035,18 @@ mod tests {
     }
 
     #[test]
-    fn setting_the_command_replaces_it_and_keeps_every_comment() {
+    fn setting_the_command_writes_the_key_and_keeps_every_comment() {
         let dir = TempDir::new("set-command");
         config(&dir.env(), Some(&ConfigCmd::Init)).expect("init succeeds");
+
+        // The starter ships `command` commented out, so the built-in `echo {@}`
+        // is what runs until someone sets their own. Setting one has to add the
+        // key without disturbing the example or the explanation around it.
+        let before = read(&dir.config());
+        assert!(
+            !before.contains("\ncommand = "),
+            "the starter must not ship an active command key: {before}"
+        );
 
         let (out, _) =
             config(&dir.env(), Some(&set("kubectl logs -f -l app=api"))).expect("the set succeeds");
@@ -1052,7 +1061,10 @@ mod tests {
             written.contains("# -o ServerAliveInterval=15"),
             "the forty lines of explanation above the key survived: {written}"
         );
-        assert!(!written.contains("bpam-"), "the old template is gone");
+        assert!(
+            written.contains("# command = \"ssh -tt"),
+            "the commented-out example survived: {written}"
+        );
     }
 
     #[test]
@@ -1176,7 +1188,18 @@ mod tests {
         let (out, _) = config(&dir.env(), None).expect("the summary succeeds");
         assert!(out.contains("file:      loaded"), "{out}");
         assert!(out.contains("exclude:   trace_id"), "{out}");
-        assert!(out.contains("command:   ssh -tt"), "{out}");
+        // The starter leaves `command` commented out, so a freshly initialised
+        // file still reports the built-in default — and says so, rather than
+        // letting it pass for something the user chose.
+        assert!(out.contains("command:   echo {@}  (built-in)"), "{out}");
+
+        config(&dir.env(), Some(&set("kubectl logs -f -l app=api"))).expect("the set succeeds");
+        let (out, _) = config(&dir.env(), None).expect("the summary succeeds");
+        assert!(
+            out.contains("command:   kubectl logs -f -l app=api"),
+            "{out}"
+        );
+        assert!(!out.contains("(built-in)"), "{out}");
     }
 
     /// An unknown key is a warning with a line number, on stderr, and the

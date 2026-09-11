@@ -3,7 +3,7 @@
 //! HLD §5 rejects quoting outright, and the reason is worth repeating here
 //! because it is the whole justification for this module: hog cannot know
 //! whether an argument lands in a word the *remote* shell will split again
-//! (`'docker logs bpam-{1}-1'` — it will) or in a bare argv entry (`-l
+//! (`'docker logs myapp-{1}-1'` — it will) or in a bare argv entry (`-l
 //! app={1}` — it will not). In the first case quotes are required, in the
 //! second they become literal and break the command. The problem has no
 //! general solution, so hog does not attempt one: instead of making dangerous
@@ -54,8 +54,8 @@ pub enum ArgError {
     },
 
     /// `hog prod ""`. Empty passes a whitelist trivially — there is nothing in
-    /// it to disallow — so it needs its own rule, otherwise `bpam-{1}-1` would
-    /// quietly become `bpam--1` and the failure would surface as a confusing
+    /// it to disallow — so it needs its own rule, otherwise `myapp-{1}-1` would
+    /// quietly become `myapp--1` and the failure would surface as a confusing
     /// message from the far end.
     #[error("argument {position} is empty")]
     Empty {
@@ -182,7 +182,7 @@ mod tests {
         for raw in [
             "prod",
             "api",
-            "bpam-api-1",
+            "myapp-api-1",
             "my_service.v2",
             "deploy@prod-1.example.com",
             "10.0.0.7:2222",
@@ -275,7 +275,7 @@ mod tests {
         assert_eq!(
             SafeArg::parse(1, ""),
             Err(ArgError::Empty { position: 2 }),
-            "`bpam-{{1}}-1` with an empty {{1}} would become `bpam--1`"
+            "`myapp-{{1}}-1` with an empty {{1}} would become `myapp--1`"
         );
     }
 

@@ -332,13 +332,13 @@ mod mode_table {
         for terminal in [true, false] {
             let mode = row(
                 &["hog", "prod", "api"],
-                Some("ssh -tt {0} 'docker logs -f bpam-{1}-1'"),
+                Some("ssh -tt {0} 'docker logs -f myapp-{1}-1'"),
                 terminal,
             )
             .expect("must plan");
             assert_eq!(
                 argv_of(&mode),
-                ["ssh", "-tt", "prod", "docker logs -f bpam-api-1"],
+                ["ssh", "-tt", "prod", "docker logs -f myapp-api-1"],
                 "terminal: {terminal}"
             );
         }

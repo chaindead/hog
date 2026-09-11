@@ -26,8 +26,11 @@ exclude = []
 # so on. A bare {} and {{...}} stay literal, so `find -exec {} \;` and
 # `docker --format '{{.Names}}'` pass through untouched.
 #
-# `hog prod api` runs the line below with {0}=prod and {1}=api.
-# Check what would run, without connecting:  hog --dry-run prod api
+# With no `command` key hog uses its built-in default, `echo {@}`, so a fresh
+# install already shows you where arguments go: `hog a b c` prints `a b c`.
+# Uncomment the line below — or run `hog config command set "<template>"` — to
+# point it at your own logs. `hog prod api` would then run it with {0}=prod and
+# {1}=api. Check what would run, without connecting:  hog --dry-run prod api
 #
 # -tt   gives the remote command a pty: without it a QUIET container leaves
 #       `docker logs -f` running on the remote host after Ctrl-C — no traffic
@@ -39,7 +42,7 @@ exclude = []
 #
 # `command` is a top-level key, so it has to stay above the first [table]
 # header: a bare key written after [output] would become output.command.
-command = "ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h bpam-{1}-1'"
+# command = "ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h myapp-{1}-1'"
 
 # Which JSON keys carry the three special columns. Each is a list of
 # candidates: the first one present wins, decided separately for every line.

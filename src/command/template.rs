@@ -42,7 +42,7 @@
 //! Two shell rules come along with [`shlex::split`] and are worth knowing
 //! about, because neither is obvious in a TOML file: a `#` that **starts** a
 //! word opens a comment and swallows the rest of the template (`#` inside a
-//! word, as in `bpam#1`, is ordinary text), and a backslash escapes the next
+//! word, as in `myapp#1`, is ordinary text), and a backslash escapes the next
 //! character — which is why `find -exec {} \;` has to be written in a TOML
 //! *literal* string (`'…'`) or with the backslash doubled, since `\;` is not a
 //! valid escape in a TOML basic string.
@@ -80,7 +80,7 @@
 //! shlex word, so `{@}` can never be a separate argv word there. The rule that
 //! holds for both examples, and the one implemented here, is the narrower half
 //! of the same idea: `{@}` may not be **glued to a non-whitespace neighbour**.
-//! `bpam-{@}-1` and `--tail={@}` are refused, because a list of arguments
+//! `myapp-{@}-1` and `--tail={@}` are refused, because a list of arguments
 //! pasted into the middle of one word has no meaning anyone would predict.
 //! A second `{@}` is refused too — it could only duplicate the same tail.
 
@@ -136,7 +136,7 @@ pub enum TemplateError {
         max: usize,
     },
 
-    /// `{@}` is glued to something that is not whitespace — `bpam-{@}-1`,
+    /// `{@}` is glued to something that is not whitespace — `myapp-{@}-1`,
     /// `--tail={@}`, `{0}{@}`.
     ///
     /// Refused rather than given a meaning, because every meaning would be a
@@ -786,11 +786,11 @@ mod tests {
     #[test]
     fn placeholders_are_positional() {
         assert_eq!(
-            render("ssh {0} 'docker logs -f bpam-{1}-1'", &["prod", "api"]),
+            render("ssh {0} 'docker logs -f myapp-{1}-1'", &["prod", "api"]),
             Ok(vec![
                 "ssh".into(),
                 "prod".into(),
-                "docker logs -f bpam-api-1".into()
+                "docker logs -f myapp-api-1".into()
             ])
         );
     }
@@ -1014,14 +1014,14 @@ mod tests {
 
     // ========================================================= {@} refusals
 
-    /// HLD §5 by name: `bpam-{@}-1` has no meaning that would not surprise
+    /// HLD §5 by name: `myapp-{@}-1` has no meaning that would not surprise
     /// someone, so it is refused at parse time rather than given one.
     #[test]
     fn a_rest_glued_to_a_neighbour_is_refused() {
         for template in [
-            "ssh {0} bpam-{@}-1",
+            "ssh {0} myapp-{@}-1",
             "ssh {0} --tail={@}",
-            "ssh {0} 'docker logs -f bpam-{@}-1'",
+            "ssh {0} 'docker logs -f myapp-{@}-1'",
             "ssh {0} 'docker logs --tail={@}'",
             "ssh {0}{@}",
             "ssh {@}{0}",
@@ -1039,16 +1039,16 @@ mod tests {
 
     #[test]
     fn the_glued_refusal_names_the_word_and_says_what_is_wrong() {
-        let err = parse("ssh {0} 'docker logs bpam-{@}-1'").expect_err("must fail");
+        let err = parse("ssh {0} 'docker logs myapp-{@}-1'").expect_err("must fail");
         assert_eq!(
             err,
             TemplateError::RestGlued {
-                word: "docker logs bpam-{@}-1".to_owned()
+                word: "docker logs myapp-{@}-1".to_owned()
             }
         );
         let message = err.to_string();
         assert!(
-            message.contains("docker logs bpam-{@}-1"),
+            message.contains("docker logs myapp-{@}-1"),
             "the word must be in the message: {message}"
         );
         assert!(message.contains("whitespace around it"), "{message}");
@@ -1306,14 +1306,14 @@ mod tests {
     #[test]
     fn the_starter_config_template_parses_and_needs_two_arguments() {
         let template =
-            parse("ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h bpam-{1}-1'")
+            parse("ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h myapp-{1}-1'")
                 .expect("the shipped template must parse");
         assert_eq!(template.required_arity(), 2);
         assert_eq!(template.word_count(), 6);
         assert!(!template.is_variadic());
         assert_eq!(
             render(
-                "ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h bpam-{1}-1'",
+                "ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h myapp-{1}-1'",
                 &["prod", "api"]
             ),
             Ok(vec![
@@ -1322,7 +1322,7 @@ mod tests {
                 "-o".into(),
                 "ServerAliveInterval=15".into(),
                 "prod".into(),
-                "docker logs -f --since 1h bpam-api-1".into(),
+                "docker logs -f --since 1h myapp-api-1".into(),
             ])
         );
     }

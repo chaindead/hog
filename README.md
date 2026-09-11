@@ -18,7 +18,7 @@ Your service writes this:
 
 ```console
 $ tail -2 app.log
-{"level":"info","ts":"2026-09-11T09:14:02.418Z","logger":"api","msg":"request completed","trace_id":"7f3c1a9e4b2d","grpc":{"service":"bpam.v1.Orders","method":"Create","code":"OK","time_ms":18.4,"request":{"deadline":"2026-09-11T09:14:12Z","user_id":90210}},"http":{"status":200}}
+{"level":"info","ts":"2026-09-11T09:14:02.418Z","logger":"api","msg":"request completed","trace_id":"7f3c1a9e4b2d","grpc":{"service":"shop.v1.Orders","method":"Create","code":"OK","time_ms":18.4,"request":{"deadline":"2026-09-11T09:14:12Z","user_id":90210}},"http":{"status":200}}
 {"level":"error","ts":"2026-09-11T09:14:03.771Z","logger":"api","msg":"upstream failed after retries","upstream":"payments","error":"context deadline exceeded","attempts":3}
 ```
 
@@ -26,7 +26,7 @@ $ tail -2 app.log
 
 ```console
 $ tail -2 app.log | hog
-09:14:02 [INF] request completed grpc.code=OK grpc.method=Create grpc.request.deadline=2026-09-11T09:14:12Z grpc.request.user_id=90210 grpc.service=bpam.v1.Orders grpc.time_ms=18.4 http.status=200 logger=api trace_id=7f3c1a9e4b2d
+09:14:02 [INF] request completed grpc.code=OK grpc.method=Create grpc.request.deadline=2026-09-11T09:14:12Z grpc.request.user_id=90210 grpc.service=shop.v1.Orders grpc.time_ms=18.4 http.status=200 logger=api trace_id=7f3c1a9e4b2d
 09:14:03 [ERR] upstream failed after retries attempts=3 error="context deadline exceeded" logger=api upstream=payments
 ```
 
@@ -88,7 +88,6 @@ Optional, and worth the thirty seconds:
 
 ```console
 $ hog completions zsh > "${fpath[1]}/_hog"      # bash, elvish, fish, powershell, zsh
-$ sudo install -m644 man/hog.1 /usr/local/share/man/man1/hog.1   # from a clone
 ```
 
 `hog --version` prints the release tag the binary was built from, or `dev` with
@@ -123,7 +122,7 @@ one-line shell wrapper everyone on the team has their own copy of. Put the line
 in `hog`'s config instead:
 
 ```toml
-command = "ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h bpam-{1}-1'"
+command = "ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h myapp-{1}-1'"
 ```
 
 ```console
@@ -177,7 +176,7 @@ moment they would confuse you:
 
 * **Indices run from `{0}` with no gaps.** `"ssh {0} {2}"` would ask you for
   three arguments and use two, which is a typo every time.
-* **`{@}` is a whole word, and there is only one.** `bpam-{@}-1` has no sensible
+* **`{@}` is a whole word, and there is only one.** `myapp-{@}-1` has no sensible
   meaning — gluing several arguments into one word could only surprise you.
 
 Arity is checked against what you typed: `{0}` and `{1}` want exactly two
@@ -186,7 +185,7 @@ ceiling. `hog --help` prints your own template, its arity and an example:
 
 ```
 Configured command (~/.config/hog/config.toml):
-  ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h bpam-{1}-1'
+  ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h myapp-{1}-1'
 
 Takes 2 arguments:
   hog <ARG0> <ARG1>
@@ -218,7 +217,7 @@ ssh
 -o
 ServerAliveInterval=15
 prod
-"docker logs -f --since 1h bpam-api-1"
+"docker logs -f --since 1h myapp-api-1"
 ```
 
 One argv word per line, quoted where a word contains spaces, and nothing is
@@ -241,7 +240,7 @@ error: argument 2 contains characters that are not allowed: "api; rm -rf /"
 
 Quoting the value instead would be the obvious move and it does not work. `hog`
 cannot know whether your argument lands in a word the *remote* shell will split
-a second time (`'docker logs bpam-{1}-1'` — it will) or in a plain argv entry
+a second time (`'docker logs myapp-{1}-1'` — it will) or in a plain argv entry
 (`-l app={1}` — it will not). The first needs quotes, the second is broken by
 them, and nothing in the template says which one you wrote. So `hog` refuses to
 carry the characters that would matter rather than pretending to neutralise
@@ -412,7 +411,7 @@ Out of the box `hog` hides nothing at all.
 The template `hog config init` writes is this:
 
 ```toml
-command = "ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h bpam-{1}-1'"
+command = "ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h myapp-{1}-1'"
 ```
 
 `-tt` and `-o ServerAliveInterval=15` are both load-bearing, and both look like
@@ -503,17 +502,8 @@ forever.
 ## Documentation
 
 `hog --help` is dynamic — it prints your own template and its arity, so it
-doubles as "I installed this, now what". The man page has the rest:
-
-```console
-$ man ./man/hog.1
-```
-
-It is generated from the clap grammar with `clap_mangen`, never edited by hand:
-
-```console
-$ cargo run --manifest-path man/generate/Cargo.toml -- man/hog.1
-```
+doubles as "I installed this, now what". `hog config --help` and
+`hog config exclude --help` cover the subcommands the same way.
 
 The design document this implementation follows — the reasoning behind every
 decision summarised above, and the ones that were rejected — is

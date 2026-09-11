@@ -293,14 +293,14 @@ fn no_local_shell_stands_between_the_template_and_the_program() {
 fn a_substituted_value_reaches_the_program_verbatim() {
     let fake = Fake::new("verbatim");
     let stub = fake.script("show-args", "for a in \"$@\"; do echo \"arg=$a\"; done\n");
-    fake.command(&format!("{} {{0}} bpam-{{1}}-1", path_of(&stub)));
+    fake.command(&format!("{} {{0}} myapp-{{1}}-1", path_of(&stub)));
 
     let (stdout, stderr, code) = fake.run(&["deploy@prod-1.example.com:22", "api.v2"], b"");
 
     assert_eq!((code, stderr.as_str()), (0, ""));
     assert_eq!(
         stdout,
-        "arg=deploy@prod-1.example.com:22\narg=bpam-api.v2-1\n"
+        "arg=deploy@prod-1.example.com:22\narg=myapp-api.v2-1\n"
     );
 }
 
@@ -791,14 +791,14 @@ fn dry_run_prints_the_argv_one_word_per_line_and_spawns_nothing() {
 #[test]
 fn dry_run_shows_where_the_word_boundaries_fell() {
     let fake = Fake::new("dry-run-quoting");
-    fake.command("ssh -tt {0} 'docker logs -f bpam-{1}-1 2>&1'");
+    fake.command("ssh -tt {0} 'docker logs -f myapp-{1}-1 2>&1'");
 
     let (stdout, stderr, code) = fake.run(&["--dry-run", "prod", "api"], b"");
 
     assert_eq!((code, stderr.as_str()), (0, ""));
     assert_eq!(
         stdout,
-        "ssh\n-tt\nprod\n\"docker logs -f bpam-api-1 2>&1\"\n"
+        "ssh\n-tt\nprod\n\"docker logs -f myapp-api-1 2>&1\"\n"
     );
 }
 
@@ -896,7 +896,7 @@ fn dry_run_prints_an_argv_it_could_not_have_run() {
 #[test]
 fn dry_run_refuses_the_wrong_number_of_arguments() {
     let fake = Fake::new("dry-run-arity");
-    fake.command("ssh {0} 'docker logs -f bpam-{1}-1'");
+    fake.command("ssh {0} 'docker logs -f myapp-{1}-1'");
 
     let (stdout, stderr, code) = fake.run(&["--dry-run", "prod"], b"");
 
@@ -1016,7 +1016,7 @@ mod input_modes {
     #[test]
     fn a_terminal_and_a_template_with_placeholders_is_an_arity_error() {
         let fake = Fake::new("row5");
-        fake.command("ssh {0} 'docker logs -f bpam-{1}-1'");
+        fake.command("ssh {0} 'docker logs -f myapp-{1}-1'");
 
         let Some((text, code)) = fake.run_on_a_pty(&[]) else {
             eprintln!("skipped: `script` is not available to make a pty");

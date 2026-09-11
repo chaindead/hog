@@ -8,7 +8,7 @@
 //!
 //! ```text
 //! Configured command (/home/you/.config/hog/config.toml):
-//!   ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h bpam-{1}-1'
+//!   ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h myapp-{1}-1'
 //!
 //! Takes 2 arguments:
 //!   hog <ARG0> <ARG1>

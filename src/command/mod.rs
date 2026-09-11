@@ -329,7 +329,7 @@ mod tests {
     #[test]
     fn the_starter_template_plans_the_documented_argv() {
         let plan = plan_for(
-            "ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h bpam-{1}-1'",
+            "ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h myapp-{1}-1'",
             &["prod", "api"],
         )
         .expect("must plan");
@@ -342,7 +342,7 @@ mod tests {
                 "-o",
                 "ServerAliveInterval=15",
                 "prod",
-                "docker logs -f --since 1h bpam-api-1",
+                "docker logs -f --since 1h myapp-api-1",
             ]
         );
     }
@@ -533,12 +533,12 @@ mod tests {
     /// faults, with the template quoted back (HLD §5).
     #[test]
     fn a_misplaced_tail_is_reported_as_a_template_fault() {
-        let glued = plan_for("ssh {0} bpam-{@}-1", &["prod"]).expect_err("must fail");
+        let glued = plan_for("ssh {0} myapp-{@}-1", &["prod"]).expect_err("must fail");
         assert!(
             glued.to_string().starts_with("command template glues {@}"),
             "{glued}"
         );
-        assert!(glued.to_string().contains("bpam-{@}-1"), "{glued}");
+        assert!(glued.to_string().contains("myapp-{@}-1"), "{glued}");
 
         let twice = plan_for("ssh {0} {@} {@}", &["prod"]).expect_err("must fail");
         assert!(
@@ -693,11 +693,11 @@ mod tests {
     /// command is one line, not four.
     #[test]
     fn dry_run_prints_one_word_per_line() {
-        let plan = plan_for("ssh -tt {0} 'docker logs -f bpam-{1}-1'", &["prod", "api"])
+        let plan = plan_for("ssh -tt {0} 'docker logs -f myapp-{1}-1'", &["prod", "api"])
             .expect("must plan");
         assert_eq!(
             plan.dry_run_text(),
-            "ssh\n-tt\nprod\n\"docker logs -f bpam-api-1\""
+            "ssh\n-tt\nprod\n\"docker logs -f myapp-api-1\""
         );
     }
 

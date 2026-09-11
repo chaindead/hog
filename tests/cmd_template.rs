@@ -44,7 +44,7 @@ use hog::settings::Settings;
 /// config, because a test that reads its expectation from the thing under test
 /// cannot notice the thing under test changing.
 const STARTER: &str =
-    "ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h bpam-{1}-1'";
+    "ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h myapp-{1}-1'";
 
 /// Every character the whitelist of HLD §5 accepts, spelled out.
 const WHITELIST: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:/@-";
@@ -134,8 +134,8 @@ fn the_starter_template_assembles_the_argv_hld_5_documents() {
             "ServerAliveInterval=15",
             "prod",
             // One word: the remote shell gets the whole `docker logs …` line,
-            // and `bpam-{1}-1` was filled in without breaking it apart.
-            "docker logs -f --since 1h bpam-api-1",
+            // and `myapp-{1}-1` was filled in without breaking it apart.
+            "docker logs -f --since 1h myapp-api-1",
         ]
     );
 }
@@ -176,7 +176,7 @@ fn the_brace_matrix_is_exactly_two_shapes_and_everything_else_is_data() {
         ("x {0} {1}", &["A", "B"], "B"),
         ("x {0}{1}", &["A", "B"], "AB"),
         ("x {1}{0}", &["A", "B"], "BA"),
-        ("x {0} bpam-{1}-1", &["A", "B"], "bpam-B-1"),
+        ("x {0} myapp-{1}-1", &["A", "B"], "myapp-B-1"),
         ("x a{0}b{1}c", &["A", "B"], "aAbBc"),
         ("x {0}{0}", &["A"], "AA"),
         ("x '{0}'", &["A"], "A"),
@@ -304,7 +304,7 @@ fn a_placeholder_may_be_the_program_itself() {
 /// and the word count is fixed by the template alone.
 #[test]
 fn the_shape_of_the_argv_is_a_property_of_the_template_not_of_the_arguments() {
-    let template = "ssh -tt {0} 'docker logs -f --since 1h bpam-{1}-1 2>&1'";
+    let template = "ssh -tt {0} 'docker logs -f --since 1h myapp-{1}-1 2>&1'";
     let parsed = template::parse(template).expect("must parse");
 
     for args in [
@@ -324,7 +324,7 @@ fn the_shape_of_the_argv_is_a_property_of_the_template_not_of_the_arguments() {
         // the value landed in the middle of that same entry.
         assert_eq!(
             plan.args().last().map(String::as_str),
-            Some(format!("docker logs -f --since 1h bpam-{}-1 2>&1", args[1]).as_str()),
+            Some(format!("docker logs -f --since 1h myapp-{}-1 2>&1", args[1]).as_str()),
             "{args:?}"
         );
     }
@@ -409,7 +409,7 @@ fn the_arity_table() {
 #[test]
 fn the_arity_message_is_the_one_hld_6_spells_out() {
     assert_eq!(
-        summary(&refusal("ssh {0} 'docker logs -f bpam-{1}-1'", &[])),
+        summary(&refusal("ssh {0} 'docker logs -f myapp-{1}-1'", &[])),
         "template needs 2 arguments, got 0"
     );
 }
@@ -497,10 +497,10 @@ fn a_template_with_no_words_is_reported_rather_than_run() {
 }
 
 /// A `#` inside a word is ordinary text, which is the other half of the same
-/// shell rule and the one that keeps `bpam#1` working.
+/// shell rule and the one that keeps `myapp#1` working.
 #[test]
 fn a_hash_inside_a_word_is_not_a_comment() {
-    assert_eq!(argv("x bpam#1 y", &[]), ["x", "bpam#1", "y"]);
+    assert_eq!(argv("x myapp#1 y", &[]), ["x", "myapp#1", "y"]);
 }
 
 /// `{0}` and `{2}` with no `{1}`: the second argument could only ever be typed
@@ -659,7 +659,7 @@ fn the_names_command_mode_is_for_are_accepted() {
     for value in [
         "prod",
         "api",
-        "bpam-api-1",
+        "myapp-api-1",
         "my_service.v2",
         "deploy@prod-1.example.com",
         "10.0.0.7:2222",
@@ -719,11 +719,11 @@ fn length_is_checked_before_content() {
 }
 
 /// An empty argument passes a whitelist trivially, so it needs its own rule:
-/// `bpam-{1}-1` with an empty `{1}` would quietly become `bpam--1`.
+/// `myapp-{1}-1` with an empty `{1}` would quietly become `myapp--1`.
 #[test]
 fn an_empty_argument_is_refused_rather_than_substituted() {
     assert_eq!(SafeArg::parse(0, ""), Err(ArgError::Empty { position: 1 }));
-    let err = refusal("ssh {0} 'logs bpam-{1}-1'", &["prod", ""]);
+    let err = refusal("ssh {0} 'logs myapp-{1}-1'", &["prod", ""]);
     assert_eq!(summary(&err), "argument 2 is empty");
 }
 
@@ -880,7 +880,7 @@ fn the_dry_run_text_is_one_word_per_line() {
          -o\n\
          ServerAliveInterval=15\n\
          prod\n\
-         \"docker logs -f --since 1h bpam-api-1\""
+         \"docker logs -f --since 1h myapp-api-1\""
     );
 }
 
@@ -924,11 +924,11 @@ fn the_one_line_form_is_the_same_words_space_separated() {
 #[test]
 fn render_is_the_same_substitution_plan_performs() {
     assert_eq!(
-        render("ssh {0} 'docker logs -f bpam-{1}-1'", &["prod", "api"]),
+        render("ssh {0} 'docker logs -f myapp-{1}-1'", &["prod", "api"]),
         Ok(vec![
             "ssh".to_owned(),
             "prod".to_owned(),
-            "docker logs -f bpam-api-1".to_owned(),
+            "docker logs -f myapp-api-1".to_owned(),
         ])
     );
     assert_eq!(

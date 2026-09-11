@@ -575,7 +575,7 @@ fn setting_a_command_validates_it_before_writing_and_then_runs_it() {
     for (template, needle) in [
         ("ssh {0} 'docker logs", "unclosed quote"),
         ("ssh {0} {2}", "uses {2} but never {1}"),
-        ("ssh bpam-{@}-1", "{@}"),
+        ("ssh myapp-{@}-1", "{@}"),
         ("", "empty"),
     ] {
         let out = home.run(&["config", "command", "set", template]).exited(1);
