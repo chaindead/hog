@@ -1,0 +1,14 @@
+{"level":"trace","msg":"trace level"}
+{"level":"debug","msg":"debug level"}
+{"level":"info","msg":"info level"}
+{"level":"warn","msg":"warn level"}
+{"level":"warning","msg":"warning shares the three-letter tag"}
+{"level":"error","msg":"error level"}
+{"level":"fatal","msg":"fatal level"}
+{"level":"panic","msg":"panic level"}
+{"level":"INFO","msg":"upper case still matches"}
+{"level":"Warning","msg":"mixed case still matches"}
+{"level":"weird","msg":"an unknown level keeps its own text"}
+{"level":"30","msg":"pino and bunyan send numbers"}
+{"level":"notice","msg":"a syslog level hog does not know"}
+{"lvl":"error","msg":"the third candidate wins when it is the only one"}

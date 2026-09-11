@@ -1,0 +1,5 @@
+{"ts":"2025-06-15T10:32:01Z","level":"info","msg":"server started","port":8080,"grpc":{"code":"OK","time_ms":1.5}}
+{"ts":"2025-06-15T10:32:02.250Z","level":"debug","msg":"handling request","path":"/v1/items","status":200}
+{"time":"2025-06-15 10:32:03","severity":"error","message":"upstream refused","retries":3,"ok":false}
+{"ts":1750000000,"level":"warn","msg":"clock skew","delta_ms":-12.5}
+{"ts":"2025-06-15T10:32:05Z","level":"info","msg":"shutting down"}

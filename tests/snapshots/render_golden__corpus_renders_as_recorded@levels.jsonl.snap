@@ -1,0 +1,19 @@
+---
+source: tests/render_golden.rs
+description: hog --color never --timezone utc
+input_file: tests/corpus/levels.jsonl
+---
+[TRC] trace level
+[DBG] debug level
+[INF] info level
+[WRN] warn level
+[WRN] warning shares the three-letter tag
+[ERR] error level
+[FTL] fatal level
+[PNC] panic level
+[INF] upper case still matches
+[WRN] mixed case still matches
+[WEIRD] an unknown level keeps its own text
+[30] pino and bunyan send numbers
+[NOTICE] a syslog level hog does not know
+[ERR] the third candidate wins when it is the only one

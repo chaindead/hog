@@ -1,0 +1,8 @@
+{"plain":"abc","wide":"a b","eq":"x=y","quote":"a\"b","blank":""}
+{"path":"C:\\tmp","spaced_path":"C:\\my dir"}
+{"tab":"a\tb","newline":"a\nb","carriage":"a\rb","backspace":"a\bb","formfeed":"a\fb"}
+{"msg":"a message keeps its spaces and its = unquoted","user name":"bob","two words":1}
+{"nul":"a\u0000b","bell":"a\u0007b","del":"a\u007fb"}
+{"unicode":"ключ значение","emoji":"💩","escaped":"\u0041\u00e9","surrogate":"\ud83d\udca9"}
+{"num":8080,"float":1.50,"exp":1e5,"big":12345678901234567890,"neg":-0.0}
+{"yes":true,"no":false,"url":"https://example.com/a?b=c&d=e"}

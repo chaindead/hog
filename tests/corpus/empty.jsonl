@@ -1,0 +1,7 @@
+{"empty":{},"a":null,"b":"","c":[],"d":[1,2]}
+{"a":{"b":{}}}
+{"":1,"x":{"":2}}
+{"deep":{"a":{},"b":[],"c":null,"d":""}}
+{"msg":"empty values stay visible","nil":null,"str":"","obj":{},"arr":[]}
+{"ts":"","level":"info","msg":"","port":8080}
+{"ts":"","msg":""}

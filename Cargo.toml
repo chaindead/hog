@@ -2,5 +2,184 @@
 name = "hog"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.87"
+description = "Reads JSON logs line by line and prints them for humans"
+publish = false
+
+# `cargo binstall hog` fetches the release archive instead of compiling the
+# crate (HLD §10). A table per target rather than one shared line, because the
+# asset names are hulog's and binstall cannot spell them: its variables say
+# `linux`/`macos`/`windows` and `aarch64`, never `Darwin` or `arm64`. The
+# literal URL is here rather than `{ repo }` because `[package]` declares no
+# `repository` yet.
+#
+# `{ version }` is the version above, and release.yml refuses to build a tag
+# that disagrees with it — so `v{ version }` is always the release tag.
+[package.metadata.binstall]
+# The binary sits at the archive root: the default layout of
+# upload-rust-binary-action, and of goreleaser before it.
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+# The release is musl-only (HLD §10), and a glibc machine asks for the `gnu`
+# triple first — binstall offers `musl` only as its second guess. Both spellings
+# therefore point at the same static archive, which is what a glibc user should
+# be getting anyway.
+[package.metadata.binstall.overrides.x86_64-unknown-linux-musl]
+pkg-url = "https://github.com/chaindead/hog/releases/download/v{ version }/{ name }_Linux_x86_64.tar.gz"
+
+[package.metadata.binstall.overrides.x86_64-unknown-linux-gnu]
+pkg-url = "https://github.com/chaindead/hog/releases/download/v{ version }/{ name }_Linux_x86_64.tar.gz"
+
+[package.metadata.binstall.overrides.aarch64-unknown-linux-musl]
+pkg-url = "https://github.com/chaindead/hog/releases/download/v{ version }/{ name }_Linux_arm64.tar.gz"
+
+[package.metadata.binstall.overrides.aarch64-unknown-linux-gnu]
+pkg-url = "https://github.com/chaindead/hog/releases/download/v{ version }/{ name }_Linux_arm64.tar.gz"
+
+[package.metadata.binstall.overrides.x86_64-apple-darwin]
+pkg-url = "https://github.com/chaindead/hog/releases/download/v{ version }/{ name }_Darwin_x86_64.tar.gz"
+
+[package.metadata.binstall.overrides.aarch64-apple-darwin]
+pkg-url = "https://github.com/chaindead/hog/releases/download/v{ version }/{ name }_Darwin_arm64.tar.gz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-url = "https://github.com/chaindead/hog/releases/download/v{ version }/{ name }_Windows_x86_64.zip"
+pkg-fmt = "zip"
+
+[package.metadata.binstall.overrides.aarch64-pc-windows-msvc]
+pkg-url = "https://github.com/chaindead/hog/releases/download/v{ version }/{ name }_Windows_arm64.zip"
+pkg-fmt = "zip"
 
 [dependencies]
+# CLI. `env` powers HOG_CONFIG, `wrap_help` keeps --help readable in narrow terminals.
+clap = { version = "4.6.6", features = ["derive", "env", "wrap_help"] }
+# `Cmd::Completions` in the verified grammar (HLD §6) is typed as `clap_complete::Shell`.
+clap_complete = "4.6.9"
+# `raw_value` is the reason the prototype hits 303 ns/line (HLD §4).
+serde_json = { version = "1.0.151", features = ["raw_value"] }
+# The ONLY crate allowed to appear outside `render::time`.
+jiff = "0.2.35"
+# Colour. All three arrive for free through clap.
+anstream = "1.0.0"
+anstyle = "1.0.14"
+anstyle-query = "1.1.5"
+# truecolor -> ansi256 downgrade; Apple Terminal.app has no 24-bit colour.
+anstyle-lossy = "1.1.5"
+# err-anyhow-app
+anyhow = "1.0.104"
+# err-thiserror-lib: typed domain errors behind the exit-code table.
+thiserror = "2.0.20"
+# TOML, read AND written by the same crate. `hog config -e` has to give the
+# file back with every comment intact — the starter config is the documentation
+# of the format — so a serialize round-trip is out and `toml` is not pulled in.
+# The `serde` feature is what makes `toml_edit::de` available, so one parse
+# yields both the typed model and the editable document with its spans.
+toml_edit = { version = "0.25.15", features = ["serde"] }
+# Derives the config model in `config/model.rs`. Nothing else deserializes.
+serde = { version = "1.0.229", features = ["derive"] }
+# Splits the `command` template into argv by shell rules (HLD §5). `split` is
+# the only item used: `try_quote` is deliberately NOT called, because hog cannot
+# know whether a substituted value lands in a word the *remote* shell will split
+# again. A whitelist in `command::validate` takes the place of quoting.
+shlex = "2.0.1"
+
+# Closes the leak of HLD §5: `kill -TERM <hog>` ends the process without
+# unwinding, so `Session::drop` never runs and a *silent* child is inherited by
+# pid 1 forever. The crate keeps the `unsafe` on its own side of the wall, which
+# is what lets `unsafe_code = "deny"` stay in `[lints.rust]`.
+#
+# unix-only, like the handler it feeds: the leak is a POSIX one (signals,
+# `kill(1)`, reparenting to pid 1), and `command::session` compiles the whole
+# mechanism out elsewhere rather than pretend Windows has it.
+#
+# Default features would add `channel`, which `iterator` pulls in anyway; only
+# `iterator` is used (`Signals`, one blocking thread) plus `low_level`.
+[target.'cfg(unix)'.dependencies]
+signal-hook = { version = "0.4.4", default-features = false, features = [
+    "iterator",
+] }
+
+[dev-dependencies]
+insta = "1.48"
+assert_cmd = "2.2.2"
+# Golden files for the CLI surface (HLD §2, `tests/cmd/*.trycmd`). `assert_cmd`
+# checks what a run *does*; this checks what `--help` *says*, which is the half
+# that drifts silently when a flag is renamed. The `.trycmd` files are the
+# expected output, so an intentional change is `TRYCMD=overwrite cargo test`.
+trycmd = "1.2.1"
+# test-criterion-bench. The Go benchmark in hulog's `main_test.go` is the number
+# this rewrite is judged against (HLD §1), so `benches/render.rs` runs the same
+# five lines. `default-features = false` drops `plotters` and `rayon`: there are
+# no HTML reports here (`html_reports` is not a default feature anyway) and the
+# bench is single-threaded, so neither would do anything but slow `cargo build`.
+criterion = { version = "0.8.2", default-features = false, features = [
+    "cargo_bench_support",
+] }
+
+# Needs `harness = false`: criterion brings its own `main`, and the libtest one
+# would swallow the command line criterion expects.
+[[bench]]
+name = "render"
+harness = false
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+# panic = "abort" is deliberately NOT set: it would skip unwinding, and the ssh
+# Drop-guard (v0.3) would never kill the remote follower. See HLD §7.
+
+[lints.rust]
+unsafe_code = "deny"
+
+# Lints live here rather than in `#![deny(...)]` at the crate root so that they
+# apply to benches and integration tests too, and so that `cargo clippy` and the
+# editor agree without a rebuild. Group entries carry `priority = -1` so the
+# individual `allow`s below them win.
+[lints.clippy]
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
+# Enforce the invariants written into clippy.toml.
+disallowed_macros = "deny"
+disallowed_methods = "deny"
+
+# Hot-path rules from HLD §7. The renderer must write into a buffer it reuses
+# between lines; each of these is a per-line allocation it would not notice.
+format_push_string = "deny"
+inefficient_to_string = "deny"
+# `unwrap`/`expect` outside tests: the exit-code table is the contract, and a
+# panic bypasses it. Tests override this locally.
+unwrap_used = "warn"
+# Numeric mistakes that silently produce wrong output rather than failing.
+cast_possible_truncation = "deny"
+cast_sign_loss = "deny"
+cast_possible_wrap = "deny"
+
+# Selected `nursery` lints. The group as a whole is too unstable to gate CI on,
+# but these three catch real defects.
+or_fun_call = "warn"
+use_self = "warn"
+derive_partial_eq_without_eq = "warn"
+
+# --- deliberately allowed, with the reason -----------------------------------
+# `publish = false`: the public surface exists for tests and benches, so
+# `#[must_use]` and `# Errors` sections would be ceremony for an audience of one.
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+# Conflicts with the project's own visibility policy (HLD §2): default to
+# `pub(crate)`, widen only for a test or bench that actually calls the item.
+redundant_pub_crate = "allow"
+# `config::Config`, `render::Renderer` — the repetition is what makes a path
+# readable at the call site.
+module_name_repetitions = "allow"
+# Doc prose names things like hulog and stdout; backticking every one of them
+# makes the source harder to read than the rendered docs are to skim.
+doc_markdown = "allow"

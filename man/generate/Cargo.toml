@@ -1,0 +1,35 @@
+# The man-page generator, kept out of hog's own dependency graph.
+#
+# `man/hog.1` is generated, not written: NAME, SYNOPSIS, DESCRIPTION and
+# OPTIONS come out of the clap grammar in `src/cli.rs` through `clap_mangen`,
+# so a renamed flag cannot silently rot the page. Only the sections a grammar
+# cannot know — EXIT STATUS, ENVIRONMENT, the template rules, the migration
+# notes — are written in `src/main.rs` here.
+#
+# It is a crate of its own rather than an `[[example]]` or a dev-dependency
+# because `clap_mangen` would otherwise sit in hog's lockfile for the sake of a
+# file that is regenerated a handful of times a year.
+#
+#   cargo run --manifest-path man/generate/Cargo.toml -- man/hog.1
+#
+# `[workspace]` is the empty table that detaches this crate from any workspace
+# above it; without it cargo complains that the parent directory is a package.
+[workspace]
+
+[package]
+name = "hog-mangen"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.87"
+publish = false
+
+[dependencies]
+# The grammar itself. `hog::Cli` is `pub`, and `clap::CommandFactory` turns it
+# into the `clap::Command` both clap_mangen and the COMMANDS walk read.
+hog = { path = "../.." }
+# Must resolve to the same clap hog was built against, or `CommandFactory`
+# would hand back a `Command` from a different crate version.
+clap = { version = "4.6.6", features = ["derive", "env", "wrap_help"] }
+clap_mangen = "0.3.3"
+# clap_mangen's own roff, for the sections it has no opinion about.
+roff = "1.1.1"

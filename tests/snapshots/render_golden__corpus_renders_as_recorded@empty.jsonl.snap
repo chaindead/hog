@@ -1,0 +1,11 @@
+---
+source: tests/render_golden.rs
+description: hog --color never --timezone utc
+input_file: tests/corpus/empty.jsonl
+---
+a=null b="" c=[] d=[1,2] empty={}
+a.b={}
+""=1 x.=2
+deep.a={} deep.b=[] deep.c=null deep.d=""
+empty values stay visible arr=[] nil=null obj={} str=""
+[INF] port=8080

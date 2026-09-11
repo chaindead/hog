@@ -1,0 +1,48 @@
+# Clippy configuration for `hog`.
+#
+# The valuable half of this file is the disallowed-* lists at the bottom: they
+# turn invariants that HLD.md states in prose into rules the compiler enforces.
+# Each one guards a bug that has a concrete failure mode, not a style opinion.
+
+msrv = "1.87"
+
+# The renderer is one long match over JSON shapes and the argv builder is one
+# long match over placeholder forms. Splitting them to satisfy a counter would
+# scatter a single decision across helpers that have no other caller.
+cognitive-complexity-threshold = 40
+too-many-lines-threshold = 180
+
+# `hog` is a single-binary crate whose public API exists only for tests and
+# benches, so doc-comment lints are enforced by review, not by tooling.
+missing-docs-in-crate-items = false
+
+# Stdout is written in exactly one place, through an `AutoStream` wrapped in a
+# `BufWriter`, so that a closed pipe surfaces as `ErrorKind::BrokenPipe` and the
+# child process gets killed before hog exits 141 (HLD §5).
+#
+# The `print!` family writes to stdout directly and **panics** on a broken pipe,
+# which would skip the Drop guard and orphan `docker logs -f` on the remote host.
+#
+# `eprintln!` is NOT banned: HLD §7 makes it the sanctioned way to emit the few
+# diagnostics this tool has, and stderr is not the data stream. The couple of
+# places where even stderr must not panic say so in a comment and write by hand.
+disallowed-macros = [
+    { path = "std::println", reason = "stdout has exactly one writer; `println!` panics on a broken pipe. Use `writeln!` into the `Output` stream" },
+    { path = "std::print", reason = "stdout has exactly one writer; `print!` panics on a broken pipe. Use `write!` into the `Output` stream" },
+]
+
+disallowed-methods = [
+    # hulog's own bug: a line over the buffer size ends the scan, and the rest of
+    # the log is lost silently with exit code 0. `lines()` has the same shape of
+    # failure for a different reason — it yields `Err(InvalidData)` on the first
+    # byte that is not UTF-8 and the loop stops there.
+    { path = "std::io::BufRead::lines", reason = "kills the stream on the first invalid UTF-8 byte. Use `read_until(b'\\n')` under a `take()` cap, as `pipeline` does" },
+    # HLD §5: hog cannot know whether a substituted argument lands in a word the
+    # *remote* shell will split again, so quoting is undecidable here. The
+    # whitelist in `command::validate` takes its place.
+    { path = "shlex::try_quote", reason = "quoting is undecidable across two shell levels; `command::validate` whitelists characters instead" },
+    # `exit` runs no destructors, so the Drop guard that kills and reaps the
+    # child never fires. Errors are returned and mapped to a code in `main`.
+    { path = "std::process::exit", reason = "skips Drop, orphaning the child process. Return an error and let `main` map it to an exit code" },
+    { path = "std::process::abort", reason = "skips Drop, orphaning the child process" },
+]

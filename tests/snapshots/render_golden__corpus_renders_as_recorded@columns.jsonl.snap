@@ -1,0 +1,15 @@
+---
+source: tests/render_golden.rs
+description: hog --color never --timezone utc
+input_file: tests/corpus/columns.jsonl
+---
+10:32:01 [INF] port=8080
+10:32:01 no level
+[INF] no timestamp
+only a message
+[INF]
+a=1
+10:32:01 ts wins and time stays in the tail time=2025-06-15T10:00:00Z
+[ERR] the winner message="the loser" severity=warn
+a.level=error a.msg="a nested msg is not a column"
+10:32:01 [INF] every column present a=1

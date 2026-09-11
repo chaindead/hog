@@ -1,0 +1,10 @@
+---
+source: tests/render_golden.rs
+description: hog --color never --timezone utc
+input_file: tests/corpus/simple.jsonl
+---
+10:32:01 [INF] server started grpc.code=OK grpc.time_ms=1.5 port=8080
+10:32:02 [DBG] handling request path=/v1/items status=200
+10:32:03 [ERR] upstream refused ok=false retries=3
+15:06:40 [WRN] clock skew delta_ms=-12.5
+10:32:05 [INF] shutting down

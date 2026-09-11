@@ -1,0 +1,10 @@
+{"ts":"2025-06-15T10:32:01Z","level":"info","port":8080}
+{"ts":"2025-06-15T10:32:01Z","msg":"no level"}
+{"level":"info","msg":"no timestamp"}
+{"msg":"only a message"}
+{"level":"info"}
+{"a":1}
+{"time":"2025-06-15T10:00:00Z","ts":"2025-06-15T10:32:01Z","msg":"ts wins and time stays in the tail"}
+{"message":"the loser","msg":"the winner","severity":"warn","level":"error"}
+{"a":{"msg":"a nested msg is not a column","level":"error"}}
+{"ts":"2025-06-15T10:32:01Z","level":"info","msg":"every column present","a":1}

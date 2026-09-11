@@ -1,0 +1,7 @@
+---
+source: tests/render_golden.rs
+description: hog --color never --timezone utc
+input_file: tests/corpus/no_final_newline.txt
+---
+[INF] first line
+[ERR] the last line has no trailing newline a=1

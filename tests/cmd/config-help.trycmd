@@ -1,0 +1,88 @@
+The documented surface of `hog config` (HLD §6). A verb that is renamed, added
+or dropped changes this file, and that is the point: the five verbs below are
+the whole of it, and each one has to describe itself in one line.
+
+The surface is subcommands, not flags (HLD §11.8). The v0.2 flags `-e`, `-d`,
+`--path` and `--init` are gone rather than deprecated, and `tests/cli_surface.rs`
+pins that each of them is now a usage error.
+
+The runner pins `COLUMNS`, `HOG_CONFIG` and `NO_COLOR` (see the test that
+loads this file): clap wraps to the terminal width and echoes `$HOG_CONFIG`
+into the `--config` row, so without them this file would record whichever
+machine last ran it.
+
+```console
+$ hog config --help
+Inspect and edit the config file.
+
+With no verb it prints the resolved configuration and the path it came from. Every verb below names
+one thing to look at or change.
+
+Usage: hog config [OPTIONS] [COMMAND]
+
+Commands:
+  path     Print the path of the config file that is actually read
+  init     Write a commented starter config if none exists
+  edit     Open the config file in $VISUAL or $EDITOR
+  exclude  Show the persistent exclude list, or change it
+  command  Show the command template, or change it
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+      --config <PATH>
+          Path to the config file (default: $XDG_CONFIG_HOME/hog/config.toml)
+          
+          [env: HOG_CONFIG=]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+```
+
+`exclude` and `command` are the two verbs that take an operand, and a bare verb
+is the read-only form of each.
+
+```console
+$ hog config exclude --help
+Show the persistent exclude list, or change it
+
+Usage: hog config exclude [OPTIONS] [COMMAND]
+
+Commands:
+  add   Append FIELDs to the exclude list, keeping every comment in the file
+  rm    Remove FIELDs from the exclude list
+  help  Print this message or the help of the given subcommand(s)
+
+Options:
+      --config <PATH>  Path to the config file (default: $XDG_CONFIG_HOME/hog/config.toml) [env:
+                       HOG_CONFIG=]
+  -h, --help           Print help
+
+```
+
+```console
+$ hog config command set --help
+Write a new command template, after checking that it works.
+
+The template is split by shell rules and its placeholders are checked before anything is written, so
+a template that could only fail at the next run never reaches the file (HLD §3).
+
+Usage: hog config command set [OPTIONS] <TEMPLATE>
+
+Arguments:
+  <TEMPLATE>
+          The template, e.g. `ssh {0} 'docker logs -f {@}'`.
+          
+          `allow_hyphen_values` is on: a template is a command line, and one starting with a flag
+          (`--follow …`) is not a hog flag.
+
+Options:
+      --config <PATH>
+          Path to the config file (default: $XDG_CONFIG_HOME/hog/config.toml)
+          
+          [env: HOG_CONFIG=]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+```

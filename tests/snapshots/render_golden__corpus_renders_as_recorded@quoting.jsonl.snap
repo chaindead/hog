@@ -1,0 +1,13 @@
+---
+source: tests/render_golden.rs
+description: hog --color never --timezone utc
+input_file: tests/corpus/quoting.jsonl
+---
+blank="" eq="x=y" plain=abc quote="a\"b" wide="a b"
+path=C:\tmp spaced_path="C:\\my dir"
+backspace="a\x08b" carriage="a\rb" formfeed="a\x0cb" newline="a\nb" tab="a\tb"
+a message keeps its spaces and its = unquoted "two words"=1 "user name"=bob
+bell="a\x07b" del="a\x7fb" nul="a\x00b"
+emoji=💩 escaped=Aé surrogate=💩 unicode="ключ значение"
+big=12345678901234567890 exp=1e5 float=1.50 neg=-0.0 num=8080
+no=false url="https://example.com/a?b=c&d=e" yes=true

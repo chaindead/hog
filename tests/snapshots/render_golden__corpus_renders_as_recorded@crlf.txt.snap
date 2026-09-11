@@ -1,0 +1,8 @@
+---
+source: tests/render_golden.rs
+description: hog --color never --timezone utc
+input_file: tests/corpus/crlf.txt
+---
+10:32:01 [INF] a crlf line a=1
+plain text with a crlf ending
+the last crlf line

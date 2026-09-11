@@ -1,0 +1,83 @@
+# The three gates HLD §10 names, plus the MSRV job that makes
+# `rust-version = "1.87"` in Cargo.toml a claim CI can falsify.
+#
+# `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and
+# `cargo test` share one job: they share a checkout, a toolchain and a target
+# directory, and splitting them would pay for three of each to save nothing —
+# the whole build is seconds (HLD §4 measured 8.8 s cold with thin LTO, and this
+# is a debug build).
+name: CI
+
+on:
+  push:
+    # The repository is on `master`; `main` is listed so a rename does not
+    # silently stop running CI.
+    branches: [main, master]
+  pull_request:
+
+# Nothing here writes to the repository. `release.yml` raises this per job.
+permissions:
+  contents: read
+
+# A second push to the same branch or PR makes the first run's answer obsolete.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Cargo suppresses colour when stdout is not a terminal, which is always true
+  # in Actions; the log viewer renders ANSI, so ask for it back.
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: fmt, clippy, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # dtolnay's action installs the `minimal` profile, so both components have
+      # to be asked for by name — without this, `cargo fmt` and `cargo clippy`
+      # are simply not on PATH.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt --check
+        run: cargo fmt --check
+
+      # `-D warnings` reaches rustc's own lints too — clippy is a rustc wrapper,
+      # so this one command is also the gate on plain compiler warnings.
+      # `--all-targets` is what pulls in benches and integration tests, which is
+      # where the `[lints.clippy]` table in Cargo.toml would otherwise not apply.
+      - name: cargo clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      # `--locked` on every cargo call: Cargo.lock is committed (HLD §2), and a
+      # lockfile that no longer matches Cargo.toml should fail here rather than
+      # be silently rewritten in CI.
+      - name: cargo test
+        run: cargo test --locked
+
+  msrv:
+    # `proj-msrv-declare` wants the declared MSRV checked, not just declared.
+    # 1.87 is also what clippy.toml pins `msrv` to, so the two cannot drift.
+    name: MSRV 1.87
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The @rev of this action *is* the toolchain selector.
+      - uses: dtolnay/rust-toolchain@1.87.0
+
+      - uses: Swatinem/rust-cache@v2
+
+      # `check`, not `test`: this job answers "does hog still compile on the
+      # oldest toolchain it promises", and the behaviour is already covered by
+      # the stable job. `--all-targets` keeps tests and benches in scope, since
+      # a dev-dependency is the likeliest thing to raise the floor (criterion
+      # 0.8.2 already declares 1.86).
+      - name: cargo check
+        run: cargo check --locked --all-targets

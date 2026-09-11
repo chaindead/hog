@@ -1,0 +1,5 @@
+---
+source: tests/render_golden.rs
+description: "hog --color always --timezone utc, with COLORTERM=truecolor"
+---
+\e[2m10:32:01\e[0m \e[32m[INF]\e[0m \e[1mserver started\e[0m \e[38;2;153;204;102mgrpc.code\e[0m=OK \e[38;2;153;153;204mgrpc.time_ms\e[0m=1.5 \e[38;2;255;51;102mport\e[0m=8080

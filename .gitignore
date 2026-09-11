@@ -1,3 +1,6 @@
 /target
 /.idea
 /.vscode
+/.agents
+/.claude
+/skills-lock.json

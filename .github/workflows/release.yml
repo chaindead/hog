@@ -1,0 +1,137 @@
+# Six binaries on four runner labels, per HLD §10.
+#
+# There is no cross-compilation toolchain anywhere in this file, and that is the
+# point: hog has no C dependency, so every target needs only a linker that its
+# own runner already has. The two barriers that make a single-job release
+# impossible — the macOS SDK cannot be shipped to Linux, and the MSVC targets are
+# not available through `cross` or zig — are sidestepped by renting the three
+# operating systems instead of emulating them.
+#
+# Labels: four, not six. Both darwin targets build on one macOS runner with the
+# stock Apple toolchain (ripgrep, hyperfine), and `aarch64-pc-windows-msvc`
+# cross-links on the ordinary x86_64 Windows runner (zoxide, ast-grep). Linux is
+# the pair that cannot collapse: musl has no equivalent trick, so arm64 Linux
+# gets its own runner — free for public repositories since 2025-08-07, which is
+# the change that made this layout cheaper than `cross`. HLD §10 says "three
+# labels" while its own table lists four; the table is right.
+name: Release
+
+on:
+  push:
+    tags:
+      # The shape `create-gh-release-action` accepts:
+      # `v?MAJOR.MINOR.PATCH(-PRERELEASE)?(+BUILD)?`.
+      - v[0-9]+.*
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      # for taiki-e/create-gh-release-action
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      # HLD §10: the tag is checked against Cargo.toml *before* anything is
+      # built. `create-gh-release-action` does not do this — it parses the tag
+      # and never opens the manifest — so a `v0.2.0` tag on a tree that still
+      # says `version = "0.1.0"` would produce a release of six binaries whose
+      # own `--version` disagrees with the release they are attached to.
+      #
+      # This job gates the matrix through `needs:`, so failing here means
+      # nothing is built and no release exists to clean up.
+      - name: Tag matches the version in Cargo.toml
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          # --no-deps keeps this offline and instant: workspace members only.
+          manifest="$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "hog") | .version')"
+          if [ "${tag#v}" != "${manifest}" ]; then
+            echo "::error::tag ${tag} does not match Cargo.toml version ${manifest}"
+            exit 1
+          fi
+          echo "tag ${tag} matches Cargo.toml version ${manifest}"
+
+      # There is no CHANGELOG.md yet (HLD §9 puts the docs in v1.0). Once it
+      # exists, `with: {changelog: CHANGELOG.md}` fills the release body from it.
+      # Until then the body is empty: this action writes `--notes` from the
+      # changelog and never asks GitHub to generate notes for it.
+      - uses: taiki-e/create-gh-release-action@v1
+
+  upload-assets:
+    needs: create-release
+    strategy:
+      # One platform failing must not cancel the five that would have succeeded:
+      # a partial release can be completed by re-running a single job, whereas a
+      # cancelled matrix has to be redone from the tag.
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            archive: hog_Linux_x86_64
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
+            archive: hog_Linux_arm64
+          - target: x86_64-apple-darwin
+            os: macos-latest # arm64 host; Apple's toolchain targets both
+            archive: hog_Darwin_x86_64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive: hog_Darwin_arm64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive: hog_Windows_x86_64
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest # cross-linked with the MSVC ARM64 libs
+            archive: hog_Windows_arm64
+    runs-on: ${{ matrix.os }}
+    permissions:
+      # for taiki-e/upload-rust-binary-action
+      contents: write
+    env:
+      # HLD §6: `build.rs` prefers $HOG_VERSION over `git describe`, so the
+      # released binary prints `hog v1.0.0` instead of `dev (v1.0.0)`. Set at job
+      # level so it reaches cargo inside the composite action.
+      HOG_VERSION: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # musl is this project's `CGO_ENABLED=0`: one static binary that runs on
+      # any distribution, instead of a glibc build that dies on anything older
+      # than the runner. `musl-tools` provides the `musl-gcc` linker driver.
+      - name: Install musl-tools
+        if: endsWith(matrix.target, '-musl')
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+
+      - uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: hog
+          target: ${{ matrix.target }}
+          # Exactly the names hulog published, so `curl | tar` lines in anyone's
+          # notes keep working. The action appends the extension itself: `.tar.gz`
+          # from `tar: unix` and `.zip` from `zip: windows`, both defaults, with
+          # the binary at the archive root — the goreleaser layout.
+          archive: ${{ matrix.archive }}
+          # No default: without this line no checksums are produced at all.
+          checksum: sha256
+          # The action would otherwise reach for `cross` whenever the target
+          # triple differs from the host's — which is true for both musl targets
+          # even though nothing about them is foreign to this runner. Native
+          # cargo is the whole premise of the layout above.
+          build-tool: cargo
+          # Release from the committed lockfile, not from whatever resolves today.
+          locked: true
+          # When README.md and LICENSE land (HLD §9, v1.0), add:
+          #   include: README.md,LICENSE

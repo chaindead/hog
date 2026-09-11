@@ -1,0 +1,10 @@
+---
+source: tests/render_golden.rs
+description: hog --color never --timezone utc
+input_file: tests/corpus/nested.jsonl
+---
+10:32:01 [INF] rpc done grpc.code=OK grpc.request.deadline=1s grpc.request.id=7 grpc.time_ms=1.5 grpcStatus=2 grpc_id=abc
+a=4 grpc.code=3 grpc.time_ms=2 z=1
+a.b.c.d=7
+arrays are never descended into arr="[1,2,{\"b\":3}]" braced="[{\"x\":\"}\"}]" empty_arr=[]
+outer.inner.deep.deeper.value=bottom top=1

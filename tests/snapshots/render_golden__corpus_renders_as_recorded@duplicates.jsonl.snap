@@ -1,0 +1,10 @@
+---
+source: tests/render_golden.rs
+description: hog --color never --timezone utc
+input_file: tests/corpus/duplicates.jsonl
+---
+a=1 a=2
+first a=1 a=2 msg=second
+[INF] two levels level=error
+grpc.code=1 grpc.code=2
+10:32:01 two timestamps ts=2025-06-15T23:00:00Z

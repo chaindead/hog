@@ -1,0 +1,10 @@
+---
+source: tests/render_golden.rs
+description: hog --color never --timezone utc
+input_file: tests/corpus/invalid_utf8.bin
+---
+[INF] before the bad bytes
+\xff\xfe raw bytes survive
+[INF] after the bad bytes
+{"msg":"\xff inside an otherwise fine json line"}
+caf\xe9 latin-1 never reaches the parser

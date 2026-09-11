@@ -1,0 +1,5 @@
+{"level":"info","msg":"before the bad bytes"}
+ÿþ raw bytes survive
+{"level":"info","msg":"after the bad bytes"}
+{"msg":"ÿ inside an otherwise fine json line"}
+café latin-1 never reaches the parser

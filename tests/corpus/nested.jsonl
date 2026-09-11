@@ -1,0 +1,5 @@
+{"ts":"2025-06-15T10:32:01Z","level":"info","msg":"rpc done","grpc":{"code":"OK","time_ms":1.5,"request":{"deadline":"1s","id":7}},"grpcStatus":2,"grpc_id":"abc"}
+{"z":1,"grpc":{"time_ms":2,"code":3},"a":4}
+{"a":{"b":{"c":{"d":7}}}}
+{"msg":"arrays are never descended into","arr":[1,2,{"b":3}],"braced":[{"x":"}"}],"empty_arr":[]}
+{"outer":{"inner":{"deep":{"deeper":{"value":"bottom"}}}},"top":1}

@@ -1,0 +1,3 @@
+# Defaults everywhere they are usable, so that `cargo fmt` on a stock toolchain
+# produces the same bytes as CI. Only stable options are set.
+edition = "2024"

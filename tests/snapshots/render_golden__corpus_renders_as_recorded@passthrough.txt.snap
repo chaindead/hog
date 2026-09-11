@@ -1,0 +1,25 @@
+---
+source: tests/render_golden.rs
+description: hog --color never --timezone utc
+input_file: tests/corpus/passthrough.txt
+---
+plain text line
+goroutine 1 [running]:
+  at Foo.bar (/app/x.js:1:2)
+  indented, still not json
+[1,2]
+"just a string"
+42
+true
+null
+{"a":1
+{"a":1} trailing
+{a:1}
+{"a":"unterminated}
+{}
+{ }
+a=1
+
+2025/06/15 10:32:01 a go standard-library log line
+not json, but it mentions {"a":1}
+\e[31ma raw escape reaches the terminal on a pass-through line\e[0m

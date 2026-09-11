@@ -1,0 +1,70 @@
+# ~/.config/hog/config.toml  —  `hog config path` prints the file that is
+# actually read. Every key is optional. An unknown key is a warning with a line
+# number, not an error, so a config written for a newer hog still works here.
+
+# Fields hidden from the output. Keys are dotted JSON paths as they look after
+# flattening, and excluding "grpc" prunes the whole subtree under it.
+#   `hog config exclude add <field>`  appends here (persistent)
+#   `hog -e <field>`                  ADDS to this list for one run
+#   `hog -E`                          resets this list (only what -e gave survives)
+#   `hog -E -e foo`                   excludes are exactly ["foo"]
+#
+# A real-world list — uncomment what you need. The paths are dotted, so
+# "grpc.request.deadline" hides only the deadline and leaves the other
+# grpc.request.* fields visible; "grpc" would hide the whole subtree at once.
+exclude = []
+# exclude = [
+#   "serviceName", "serviceVersion", "log_id", "x_forwarded_for", "trace_id",
+#   "grpc.start_time", "grpc.time_ms", "grpc.code", "grpc.method", "grpc.service",
+#   "grpc.request.deadline", "span.kind", "system", "logger",
+# ]
+
+# ------------------------------------------------------------------ command
+# The command that produces the log stream. It runs with NO local shell: the
+# string is split into argv by shell rules, and then hog's positional arguments
+# are substituted into the words. {0} is the first argument, {1} the second, and
+# so on. A bare {} and {{...}} stay literal, so `find -exec {} \;` and
+# `docker --format '{{.Names}}'` pass through untouched.
+#
+# `hog prod api` runs the line below with {0}=prod and {1}=api.
+# Check what would run, without connecting:  hog --dry-run prod api
+#
+# -tt   gives the remote command a pty: without it a QUIET container leaves
+#       `docker logs -f` running on the remote host after Ctrl-C — no traffic
+#       means no EPIPE, so ssh never notices that we left.
+# -o ServerAliveInterval=15  ssh defaults this to 0, so a dropped VPN hangs hog
+#       forever, with no output and no error.
+# 2>&1  works inside the quotes, where the remote shell sees it. Outside the
+#       quotes it would become a literal argument.
+#
+# `command` is a top-level key, so it has to stay above the first [table]
+# header: a bare key written after [output] would become output.command.
+command = "ssh -tt -o ServerAliveInterval=15 {0} 'docker logs -f --since 1h bpam-{1}-1'"
+
+# Which JSON keys carry the three special columns. Each is a list of
+# candidates: the first one present wins, decided separately for every line.
+[fields]
+ts    = ["ts", "time", "timestamp", "@timestamp"]
+level = ["level", "severity", "lvl"]
+msg   = ["msg", "message"]
+
+[output]
+# strftime, as jiff spells it. A value without '%' has to be one of two
+# reserved words: "raw" (print the timestamp byte for byte) or "none" (drop the
+# column altogether).
+time_format = "%H:%M:%S"
+time_zone   = "local"    # "local" | "utc" | IANA, e.g. "Europe/Moscow"
+color       = "auto"     # "auto" | "always" | "never" (NO_COLOR is honoured)
+sort_keys   = true       # false = keep the key order from the JSON
+
+# Palette for key names. A key's colour is FNV-1a(name) % len(palette), so it is
+# stable: the same key is always the same colour — in this run, tomorrow, and on
+# another machine. Change the palette and the whole mapping moves at once (that
+# is expected).
+# key_colors = ["#ff3366", "#66cc66", "#ff9933", "#66ccff", "#cc99ff",
+#               "#cc9966", "#669999", "#ff9999", "#99cc66", "#9999cc"]
+
+# Map non-standard levels onto the known ones (pino and bunyan send numbers).
+# [output.levels]
+# "30" = "info"
+# "50" = "error"

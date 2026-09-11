@@ -1,0 +1,5 @@
+{"a":1,"a":2}
+{"msg":"first","msg":"second","a":1,"a":2}
+{"level":"info","level":"error","msg":"two levels"}
+{"grpc":{"code":1},"grpc":{"code":2}}
+{"ts":"2025-06-15T10:32:01Z","ts":"2025-06-15T23:00:00Z","msg":"two timestamps"}

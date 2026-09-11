@@ -1,0 +1,15 @@
+{"ts":"2025-06-15T10:32:01Z","msg":"rfc 3339 in utc"}
+{"ts":"2025-06-15T10:32:01.123456789Z","msg":"fractional seconds"}
+{"ts":"2025-06-15T10:32:01+03:00","msg":"an offset east of utc"}
+{"ts":"2025-06-15T10:32:01-05:00","msg":"an offset west of utc"}
+{"ts":"2025-06-15 10:32:01","msg":"zoneless keeps its clock numbers"}
+{"ts":"2025-06-15 10:32:01.250","msg":"zoneless with a fraction"}
+{"ts":"2025-06-15T10:32:01","msg":"zoneless with a T"}
+{"ts":1750000000,"msg":"unix seconds"}
+{"ts":1750000000123,"msg":"unix milliseconds"}
+{"ts":"1750000000.5","msg":"fractional unix seconds"}
+{"ts":"yesterday","msg":"an unparsable timestamp is printed raw"}
+{"ts":7,"msg":"a small number is a counter, not 1970"}
+{"ts":"15/06/2025 10:32:01","msg":"a shape the layout table does not know"}
+{"@timestamp":"2025-06-15T10:32:01Z","msg":"the elastic field name"}
+{"timestamp":"2025-06-15T10:32:01Z","msg":"the long field name"}

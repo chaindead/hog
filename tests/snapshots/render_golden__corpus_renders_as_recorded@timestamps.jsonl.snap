@@ -1,0 +1,20 @@
+---
+source: tests/render_golden.rs
+description: hog --color never --timezone utc
+input_file: tests/corpus/timestamps.jsonl
+---
+10:32:01 rfc 3339 in utc
+10:32:01 fractional seconds
+07:32:01 an offset east of utc
+15:32:01 an offset west of utc
+10:32:01 zoneless keeps its clock numbers
+10:32:01 zoneless with a fraction
+10:32:01 zoneless with a T
+15:06:40 unix seconds
+15:06:40 unix milliseconds
+15:06:40 fractional unix seconds
+yesterday an unparsable timestamp is printed raw
+7 a small number is a counter, not 1970
+15/06/2025 10:32:01 a shape the layout table does not know
+10:32:01 the elastic field name
+10:32:01 the long field name

@@ -1,0 +1,4 @@
+{"level":"info","msg":"rpc done","grpc":{"code":"OK","time_ms":1.5,"request":{"deadline":"1s","id":7}},"grpcStatus":2,"grpc_id":9}
+{"code":1,"grpc":{"code":2}}
+{"span":{"kind":"server","id":"s1"},"trace_id":"abc","serviceName":"api"}
+{"a":1}

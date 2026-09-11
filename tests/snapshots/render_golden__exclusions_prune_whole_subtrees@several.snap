@@ -1,0 +1,9 @@
+---
+source: tests/render_golden.rs
+description: "hog --color never --timezone utc -e grpc,span,trace_id,serviceName"
+input_file: tests/corpus/exclude.jsonl
+---
+[INF] rpc done grpcStatus=2 grpc_id=9
+code=1
+
+a=1

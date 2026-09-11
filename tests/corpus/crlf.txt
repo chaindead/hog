@@ -1,0 +1,3 @@
+{"ts":"2025-06-15T10:32:01Z","level":"info","msg":"a crlf line","a":1}
+plain text with a crlf ending
+{"msg":"the last crlf line"}

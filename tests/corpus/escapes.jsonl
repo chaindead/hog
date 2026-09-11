@@ -1,0 +1,7 @@
+{"msg":"boom","evil":"\u001b[31mRED"}
+{"msg":"an escape in the message: a\u001bb","level":"\u001bx"}
+{"\u001b[31m":1,"ok":2}
+{"osc":"\u001b]0;pwned\u0007","csi":"\u001b[2J\u001b[H"}
+{"hyperlink":"\u001b]8;;http://example.com\u0007text\u001b]8;;\u0007"}
+{"ts":"\u001b[5m2025-06-15T10:32:01Z","msg":"an escape in the timestamp"}
+{"msg":"a fake second line\nlevel=error msg=injected"}

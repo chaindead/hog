@@ -1,0 +1,2 @@
+{"level":"info","msg":"first line"}
+{"level":"error","msg":"the last line has no trailing newline","a":1}

@@ -1,0 +1,12 @@
+---
+source: tests/render_golden.rs
+description: hog --color never --timezone utc
+input_file: tests/corpus/escapes.jsonl
+---
+boom evil="\x1b[31mRED"
+[\x1bX] an escape in the message: a\x1bb
+"\x1b[31m"=1 ok=2
+csi="\x1b[2J\x1b[H" osc="\x1b]0;pwned\x07"
+hyperlink="\x1b]8;;http://example.com\x07text\x1b]8;;\x07"
+\x1b[5m2025-06-15T10:32:01Z an escape in the timestamp
+a fake second line\nlevel=error msg=injected
